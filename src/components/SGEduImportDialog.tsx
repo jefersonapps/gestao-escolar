@@ -199,7 +199,9 @@ export function SGEduImportDialog({
 
         {step === 'login' ? (
           <form 
+              id="sgedu-import-login"
               className="space-y-4 py-4" 
+              autoComplete="on"
               onSubmit={(e) => {
                   e.preventDefault();
                   handleLogin();
@@ -209,8 +211,8 @@ export function SGEduImportDialog({
                <Label htmlFor="email">Email</Label>
                <Input 
                  id="email"
-                 name="email"
-                 autoComplete="email"
+                 name="username"
+                 autoComplete="section-sgedu-import username"
                  type="email" 
                  value={email} 
                  onChange={e => setEmail(e.target.value)} 
@@ -223,7 +225,7 @@ export function SGEduImportDialog({
                  <Input 
                    id="password"
                    name="password"
-                   autoComplete="current-password"
+                   autoComplete="section-sgedu-import current-password"
                    type={showPassword ? "text" : "password"} 
                    value={password} 
                    onChange={e => setPassword(e.target.value)} 
@@ -244,8 +246,6 @@ export function SGEduImportDialog({
                  </Button>
                </div>
              </div>
-             {/* Hidden submit button to enable Enter key submission naturally */}
-             <button type="submit" className="hidden" />
           </form>
         ) : (
           <div className="space-y-4 py-4">
@@ -341,7 +341,7 @@ export function SGEduImportDialog({
               </Button>
            )}
            {step === 'login' && (
-             <Button onClick={handleLogin} disabled={isLoading}>
+             <Button type="submit" form="sgedu-import-login" disabled={isLoading}>
                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                Entrar
              </Button>

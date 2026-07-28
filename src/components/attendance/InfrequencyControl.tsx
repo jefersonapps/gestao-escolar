@@ -22,7 +22,9 @@ import {
     DialogFooter,
     DialogDescription,
 } from "@/components/ui/dialog";
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useWorkspacePersistence } from '@/hooks/useWorkspacePersistence';
+import { WorkspaceActions } from '@/components/workspace/WorkspaceActions';
 
 interface InfrequencyData {
   id: string; // Class ID or generated ID
@@ -30,6 +32,13 @@ interface InfrequencyData {
   totalStudents: number | string;
   faults: number | string;
   observations: string;
+}
+
+interface InfrequencyWorkspaceData {
+  date: string;
+  data: InfrequencyData[];
+  newClassName: string;
+  newClassStudents: number;
 }
 
 export function InfrequencyControl() {
@@ -43,6 +52,41 @@ export function InfrequencyControl() {
   const [newClassStudents, setNewClassStudents] = useState<number>(0);
 
   const classes = useStore((s) => s.classes);
+
+  const workspaceData = useMemo<InfrequencyWorkspaceData>(
+    () => ({ date, data, newClassName, newClassStudents }),
+    [data, date, newClassName, newClassStudents],
+  );
+
+  const getWorkspaceName = useCallback(
+    (workspace: InfrequencyWorkspaceData) => `Infrequencia_${workspace.date || new Date().toISOString().split('T')[0]}`,
+    [],
+  );
+
+  const restoreWorkspace = useCallback((workspace: InfrequencyWorkspaceData) => {
+    setDate(workspace.date || new Date().toISOString().split('T')[0]);
+    setData(Array.isArray(workspace.data) ? workspace.data : []);
+    setNewClassName(workspace.newClassName || '');
+    setNewClassStudents(Number(workspace.newClassStudents) || 0);
+  }, []);
+
+  const clearWorkspace = useCallback(() => {
+    setDate(new Date().toISOString().split('T')[0]);
+    setData([]);
+    setNewClassName('');
+    setNewClassStudents(0);
+  }, []);
+
+  const workspace = useWorkspacePersistence({
+    tabType: 'infrequency',
+    data: workspaceData,
+    onRestore: restoreWorkspace,
+    getDefaultName: getWorkspaceName,
+    isDataEmpty: (workspace) =>
+      workspace.data.length === 0 &&
+      !workspace.newClassName.trim() &&
+      Number(workspace.newClassStudents) === 0,
+  });
 
   // Initial load / Sync with existing store classes (optional, maybe user wants to start empty?)
   // Requirement says: "Importar do SGEdu", "Adicionar Manualmente".
@@ -232,6 +276,13 @@ const loadImageAsBase64 = async (url: string, format: 'image/png' | 'image/jpeg'
 
   return (
     <div className="space-y-6">
+      <WorkspaceActions
+        tabType="infrequency"
+        controller={workspace}
+        defaultName={getWorkspaceName(workspaceData)}
+        onClearData={clearWorkspace}
+      />
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Controle de Infrequência</CardTitle>

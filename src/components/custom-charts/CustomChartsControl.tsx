@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   BarChart3,
   ChevronLeft,
@@ -6,6 +6,7 @@ import {
   ClipboardPaste,
   FileDown,
   FileImage,
+  GripVertical,
   Loader2,
   Plus,
   Trash2,
@@ -13,6 +14,21 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  DndContext,
+  closestCenter,
+  useSensor,
+  useSensors,
+  PointerSensor,
+  KeyboardSensor,
+} from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
 
 import { SGEduImportDialog } from '@/components/SGEduImportDialog';
 import { Button } from '@/components/ui/button';
@@ -40,6 +56,8 @@ import {
   type ReadingLevelId,
 } from '@/services/customChartGenerator';
 import type { Student } from '@/types';
+import { useWorkspacePersistence } from '@/hooks/useWorkspacePersistence';
+import { WorkspaceActions } from '@/components/workspace/WorkspaceActions';
 
 type ExportFormat = 'pptx' | 'png';
 
@@ -61,6 +79,9 @@ const createClassDraft = (index: number): ChartClassDraft => ({
 });
 
 const getCurrentYear = () => new Date().getFullYear();
+
+const getDefaultReportTitle = () => `${getCurrentYear()} - Nível de Leitura`;
+const getDefaultEditionLabel = () => `${getCurrentYear()} - Av. Diagnóstica`;
 
 const chartTypes = [
   {
@@ -90,6 +111,14 @@ const preparedClasses = (classes: ChartClassDraft[]): CustomChartClass[] =>
         .filter((student) => student.name),
     }))
     .filter((classData) => classData.students.length > 0);
+
+interface CustomChartsWorkspaceData {
+  classes: ChartClassDraft[];
+  selectedClassId: string;
+  chartType: string;
+  reportTitle: string;
+  editionLabel: string;
+}
 
 function ReadingChartPreview({ classData, editionLabel }: { classData: CustomChartClass; editionLabel: string }) {
   const summary = getReadingSummary(classData.students);
@@ -184,14 +213,129 @@ function ReadingChartPreview({ classData, editionLabel }: { classData: CustomCha
   );
 }
 
+function SortableClassItem({
+  classData,
+  isSelected,
+  onClick,
+}: {
+  classData: ChartClassDraft;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  const summary = getReadingSummary(classData.students.filter((s) => s.name.trim()));
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: classData.id,
+  });
+
+  const style: React.CSSProperties = {
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        'flex w-full items-center rounded-md border text-sm transition-colors hover:bg-accent',
+        isSelected && 'border-primary bg-accent',
+      )}
+    >
+      <button
+        type="button"
+        className="shrink-0 cursor-grab touch-none px-1.5 py-2 text-muted-foreground hover:text-foreground active:cursor-grabbing"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        className="flex flex-1 items-center justify-between gap-2 px-2 py-2 text-left"
+        onClick={onClick}
+      >
+        <span className="font-medium">{classData.name || 'Turma sem nome'}</span>
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Users className="h-3 w-3" />
+          {summary.total}
+        </span>
+      </button>
+    </div>
+  );
+}
+
 export function CustomChartsControl() {
   const [classes, setClasses] = useState<ChartClassDraft[]>([createClassDraft(1)]);
   const [selectedClassId, setSelectedClassId] = useState(classes[0].id);
   const [chartType] = useState(chartTypes[0].id);
-  const [reportTitle, setReportTitle] = useState(`${getCurrentYear()} - Nível de Leitura`);
-  const [editionLabel, setEditionLabel] = useState(`${getCurrentYear()} - Av. Diagnóstica`);
+  const [reportTitle, setReportTitle] = useState(getDefaultReportTitle);
+  const [editionLabel, setEditionLabel] = useState(getDefaultEditionLabel);
   const [importTargetClassId, setImportTargetClassId] = useState<string | null>(null);
   const [exporting, setExporting] = useState<ExportFormat | null>(null);
+
+  const sortSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
+  );
+
+  const handleClassDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setClasses((current) => {
+      const oldIndex = current.findIndex((c) => c.id === active.id);
+      const newIndex = current.findIndex((c) => c.id === over.id);
+      return arrayMove(current, oldIndex, newIndex);
+    });
+  };
+
+  const workspaceData = useMemo<CustomChartsWorkspaceData>(
+    () => ({ classes, selectedClassId, chartType, reportTitle, editionLabel }),
+    [chartType, classes, editionLabel, reportTitle, selectedClassId],
+  );
+
+  const getWorkspaceName = useCallback((workspace: CustomChartsWorkspaceData) => {
+    const cleanClassCount = preparedClasses(workspace.classes).length;
+    return `Graficos_${cleanClassCount || 1}_turma${cleanClassCount === 1 ? '' : 's'}`;
+  }, []);
+
+  const restoreWorkspace = useCallback((workspace: CustomChartsWorkspaceData) => {
+    const restoredClasses = Array.isArray(workspace.classes) && workspace.classes.length > 0 ? workspace.classes : [createClassDraft(1)];
+    setClasses(restoredClasses);
+    setSelectedClassId(workspace.selectedClassId || restoredClasses[0].id);
+    setReportTitle(workspace.reportTitle || getDefaultReportTitle());
+    setEditionLabel(workspace.editionLabel || getDefaultEditionLabel());
+  }, []);
+
+  const clearWorkspace = useCallback(() => {
+    const emptyClass = createClassDraft(1);
+    setClasses([emptyClass]);
+    setSelectedClassId(emptyClass.id);
+    setReportTitle(getDefaultReportTitle());
+    setEditionLabel(getDefaultEditionLabel());
+  }, []);
+
+  const workspace = useWorkspacePersistence({
+    tabType: 'charts',
+    data: workspaceData,
+    onRestore: restoreWorkspace,
+    getDefaultName: getWorkspaceName,
+    isDataEmpty: (workspaceValue) => {
+      const singleClass = workspaceValue.classes[0];
+      const singleStudent = singleClass?.students[0];
+
+      return (
+        workspaceValue.classes.length === 1 &&
+        singleClass?.name === 'Turma 1' &&
+        !singleClass.pastedNames &&
+        singleClass.students.length === 1 &&
+        !singleStudent?.name &&
+        singleStudent?.levelId === 'nao_informado' &&
+        workspaceValue.reportTitle === getDefaultReportTitle() &&
+        workspaceValue.editionLabel === getDefaultEditionLabel()
+      );
+    },
+  });
 
   const selectedClass = classes.find((classData) => classData.id === selectedClassId) || classes[0];
 
@@ -347,6 +491,14 @@ export function CustomChartsControl() {
 
   return (
     <div className="h-[calc(100vh-140px)] flex flex-col overflow-hidden">
+      <div className="mb-4 shrink-0">
+        <WorkspaceActions
+          tabType="charts"
+          controller={workspace}
+          defaultName={getWorkspaceName(workspaceData)}
+          onClearData={clearWorkspace}
+        />
+      </div>
       <Card className="flex h-full flex-col overflow-hidden border-none bg-transparent shadow-none">
         <CardHeader className="shrink-0 px-0 pt-0">
           <CardTitle className="flex items-center gap-2 text-xl">
@@ -399,30 +551,27 @@ export function CustomChartsControl() {
                       </Button>
                     </div>
 
-                    <div className="space-y-2">
-                      {classes.map((classData) => {
-                        const summary = getReadingSummary(classData.students.filter((student) => student.name.trim()));
-                        return (
-                          <button
-                            key={classData.id}
-                            type="button"
-                            className={cn(
-                              'w-full rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent',
-                              selectedClassId === classData.id && 'border-primary bg-accent',
-                            )}
-                            onClick={() => setSelectedClassId(classData.id)}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-medium">{classData.name || 'Turma sem nome'}</span>
-                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <Users className="h-3 w-3" />
-                                {summary.total}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <DndContext
+                      sensors={sortSensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleClassDragEnd}
+                    >
+                      <SortableContext
+                        items={classes.map((c) => c.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="space-y-2">
+                          {classes.map((classData) => (
+                            <SortableClassItem
+                              key={classData.id}
+                              classData={classData}
+                              isSelected={selectedClassId === classData.id}
+                              onClick={() => setSelectedClassId(classData.id)}
+                            />
+                          ))}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
                   </div>
 
                   {selectedClass && (
@@ -485,11 +634,12 @@ export function CustomChartsControl() {
 
                         <div className="space-y-2">
                           {selectedClass.students.map((student, index) => (
-                            <div key={student.id} className="grid grid-cols-[1fr_155px_34px] items-center gap-2">
+                            <div key={student.id} className="grid grid-cols-[1fr_120px_34px] items-center gap-2">
                               <Input
                                 value={student.name}
                                 onChange={(event) => updateStudent(selectedClass.id, student.id, { name: event.target.value })}
                                 placeholder={`Aluno ${index + 1}`}
+                                title={student.name || `Aluno ${index + 1}`}
                               />
                               <Select
                                 value={student.levelId}
@@ -505,7 +655,11 @@ export function CustomChartsControl() {
                                 <SelectContent>
                                   {READING_LEVELS.map((level) => (
                                     <SelectItem key={level.id} value={level.id}>
-                                      {level.label}
+                                      <span
+                                        className="h-2 w-2 shrink-0 rounded-full"
+                                        style={{ backgroundColor: `#${level.color}` }}
+                                      />
+                                      <span className="truncate">{level.shortLabel}</span>
                                     </SelectItem>
                                   ))}
                                 </SelectContent>

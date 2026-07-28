@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -11,12 +11,14 @@ export interface SaevFilters {
     serie: string;
     ano: string;
     edicao: string;
+    edicaoLabel?: string;
     rede: string;
     estado: string;
     regionalEstadual: string;
     municipio: string;
     regionalMunicipal: string;
     escola: string;
+    escolaLabel?: string;
     turma: string;
 }
 
@@ -28,30 +30,53 @@ interface Option {
 interface SaevFilterFormProps {
     onSubmit: (data: SaevFilters) => void;
     isLoading: boolean;
+    initialFilters?: SaevFilters;
+    restoreToken?: number;
+    onChange?: (data: SaevFilters) => void;
 }
 
-export function SaevFilterForm({ onSubmit, isLoading }: SaevFilterFormProps) {
+const DEFAULT_FILTERS: SaevFilters = {
+    rede: '',
+    ano: '',
+    edicao: '',
+    serie: '',
+    estado: '',
+    regionalEstadual: '',
+    municipio: '',
+    regionalMunicipal: '',
+    escola: '',
+    turma: '',
+};
+
+export function SaevFilterForm({ onSubmit, isLoading, initialFilters, restoreToken = 0, onChange }: SaevFilterFormProps) {
     const { service } = useExternalAuth('saev');
     const saevService = service as SaevService;
 
-    const { handleSubmit, setValue, watch } = useForm<SaevFilters>({
-        defaultValues: {
-            rede: '',
-            ano: '',
-            edicao: '',
-            serie: '',
-            estado: '',
-            regionalEstadual: '',
-            municipio: '',
-            regionalMunicipal: '',
-            escola: '',
-            turma: '',
-        }
+    const { handleSubmit, reset, setValue, watch } = useForm<SaevFilters>({
+        defaultValues: initialFilters || DEFAULT_FILTERS
     });
 
     const values = watch();
+    const initialFiltersRef = useRef(initialFilters);
+    const lastChangeHashRef = useRef('');
     const [options, setOptions] = useState<Record<string, Option[]>>({});
     const [loadingFields, setLoadingFields] = useState<Record<string, boolean>>({});
+
+    useEffect(() => {
+        initialFiltersRef.current = initialFilters;
+    }, [initialFilters]);
+
+    useEffect(() => {
+        reset({ ...DEFAULT_FILTERS, ...initialFiltersRef.current });
+    }, [reset, restoreToken]);
+
+    useEffect(() => {
+        const hash = JSON.stringify(values);
+        if (hash === lastChangeHashRef.current) return;
+
+        lastChangeHashRef.current = hash;
+        onChange?.(values);
+    }, [onChange, values]);
 
     const fetchOptions = async (level: keyof SaevFilters, currentFilters: Partial<SaevFilters>) => {
         if (loadingFields[level]) return;

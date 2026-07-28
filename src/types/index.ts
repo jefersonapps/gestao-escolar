@@ -179,6 +179,7 @@ export interface HistoryStudent {
 export interface FluencyDetailRow {
   nome: string;
   nivel: string;
+  studentId?: string | number;
   materia?: string;
   media?: string;
   nivelNum?: string;

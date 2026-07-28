@@ -71,7 +71,7 @@ const generateCoverSlide = (pres: PptxGenJS, config: any) => {
     });
 
     // Subtitle
-    slide.addText(`Análise dos resultados obtidos na ${editionName} de ${year}`, {
+    slide.addText(`Resultados obtidos na ${editionName} de ${year}`, {
         x: 0.5, y: 3.8, w: 9.0,
         fontSize: 22, align: 'center', color: '333333', fontFace: 'Arial'
     });
@@ -1049,8 +1049,7 @@ const generateSchoolSummarySlide = async (pres: PptxGenJS, aggregation: SchoolAg
     dataLabelFontSize: 10,
     showValue: true,
     dataLabelFormatCode: '0"%"', 
-    catAxisLabelColor: '404040',
-    catAxisLabelFontSize: 11,
+    catAxisLabelPos: 'none',
     valAxisLabelColor: '404040',
     valAxisLabelFontSize: 11,
     valAxisMaxVal: 100,

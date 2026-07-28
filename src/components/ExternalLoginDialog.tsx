@@ -18,6 +18,8 @@ interface ExternalLoginDialogProps {
 export function ExternalLoginDialog({ system, isOpen, onClose }: ExternalLoginDialogProps) {
   const { setExternalSession } = useStore();
   const { service, systemName } = useExternalAuth(system);
+  const loginFormId = `external-login-${system}`;
+  const autocompleteSection = `section-${system}`;
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -67,31 +69,33 @@ export function ExternalLoginDialog({ system, isOpen, onClose }: ExternalLoginDi
         </DialogHeader>
 
         <form 
+            id={loginFormId}
             className="space-y-4 py-4"
+            autoComplete="on"
             onSubmit={(e) => {
                 e.preventDefault();
                 handleLogin();
             }}
         >
             <div className="space-y-2">
-            <Label htmlFor="login-email">Email / Usuário</Label>
+            <Label htmlFor={`${system}-login-email`}>Email / Usuário</Label>
             <Input 
-                id="login-email"
-                name="email"
-                autoComplete="email"
-                type="text" 
+                id={`${system}-login-email`}
+                name="username"
+                autoComplete={`${autocompleteSection} username`}
+                type="email"
                 value={email} 
                 onChange={e => setEmail(e.target.value)} 
                 placeholder="seu@email.com"
             />
             </div>
             <div className="space-y-2">
-            <Label htmlFor="login-password">Senha</Label>
+            <Label htmlFor={`${system}-login-password`}>Senha</Label>
             <div className="relative">
                 <Input 
-                    id="login-password"
+                    id={`${system}-login-password`}
                     name="password"
-                    autoComplete="current-password"
+                    autoComplete={`${autocompleteSection} current-password`}
                     type={showPassword ? "text" : "password"} 
                     value={password} 
                     onChange={e => setPassword(e.target.value)} 
@@ -112,11 +116,10 @@ export function ExternalLoginDialog({ system, isOpen, onClose }: ExternalLoginDi
                 </Button>
             </div>
             </div>
-            <button type="submit" className="hidden" />
         </form>
 
         <DialogFooter>
-            <Button onClick={handleLogin} disabled={isLoading}>
+            <Button type="submit" form={loginFormId} disabled={isLoading}>
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Entrar
             </Button>

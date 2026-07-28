@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,16 @@ import { useStore } from '@/store/useStore';
 import { toast } from 'sonner';
 import { SGEduImportDialog } from '../SGEduImportDialog';
 import { CloudDownload } from 'lucide-react';
+import { useWorkspacePersistence } from '@/hooks/useWorkspacePersistence';
+import { WorkspaceActions } from '@/components/workspace/WorkspaceActions';
+
+interface AttendanceWorkspaceData {
+  turma: string;
+  professor: string;
+  monthYear: string;
+  students: string[];
+  newName: string;
+}
 
 export function AttendanceSheet() {
   const now = new Date();
@@ -26,9 +36,56 @@ export function AttendanceSheet() {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isImportoSGEduOpen, setIsImportoSGEduOpen] = useState(false);
   const pasteRef = useRef<HTMLTextAreaElement>(null);
+  const skipClassAutoLoadRef = useRef(false);
+
+  const workspaceData = useMemo<AttendanceWorkspaceData>(
+    () => ({ turma, professor, monthYear, students, newName }),
+    [monthYear, newName, professor, students, turma],
+  );
+
+  const getWorkspaceName = useCallback(
+    (data: AttendanceWorkspaceData) => `Frequencia_${data.turma || 'sem_turma'}_${data.monthYear || defaultMonth}`,
+    [defaultMonth],
+  );
+
+  const restoreWorkspace = useCallback((data: AttendanceWorkspaceData) => {
+    skipClassAutoLoadRef.current = true;
+    setTurma(data.turma || '');
+    setProfessor(data.professor || '');
+    setMonthYear(data.monthYear || defaultMonth);
+    setStudents(Array.isArray(data.students) ? data.students : []);
+    setNewName(data.newName || '');
+  }, [defaultMonth]);
+
+  const clearWorkspace = useCallback(() => {
+    skipClassAutoLoadRef.current = true;
+    setTurma('');
+    setProfessor('');
+    setMonthYear(defaultMonth);
+    setStudents([]);
+    setNewName('');
+  }, [defaultMonth]);
+
+  const workspace = useWorkspacePersistence({
+    tabType: 'attendance',
+    data: workspaceData,
+    onRestore: restoreWorkspace,
+    getDefaultName: getWorkspaceName,
+    isDataEmpty: (data) =>
+      !data.turma.trim() &&
+      !data.professor.trim() &&
+      data.monthYear === defaultMonth &&
+      data.students.length === 0 &&
+      !data.newName.trim(),
+  });
 
   // Auto-load students when class is selected
   useEffect(() => {
+    if (skipClassAutoLoadRef.current) {
+      skipClassAutoLoadRef.current = false;
+      return;
+    }
+
     // If no class is selected (empty string), do nothing (or clear?)
     if (!turma) return;
 
@@ -146,6 +203,13 @@ export function AttendanceSheet() {
 
   return (
     <div className="space-y-6">
+      <WorkspaceActions
+        tabType="attendance"
+        controller={workspace}
+        defaultName={getWorkspaceName(workspaceData)}
+        onClearData={clearWorkspace}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>Dados da Turma</CardTitle>

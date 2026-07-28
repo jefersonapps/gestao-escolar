@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,8 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useWorkspacePersistence } from '@/hooks/useWorkspacePersistence';
+import { WorkspaceActions } from '@/components/workspace/WorkspaceActions';
 
 interface ColumnConfig {
   id: string;
@@ -50,15 +52,60 @@ const AVAILABLE_COLUMNS: ColumnConfig[] = [
   { id: 'bolsaFamilia', label: 'Bolsa Família', field: 'bolsaFamilia', checked: false, width: 15 },
 ];
 
+const DEFAULT_REPORT_TITLE = 'Relatório de Alunos';
+
+interface CustomTableWorkspaceData {
+  selectedClassIds: string[];
+  columns: ColumnConfig[];
+  reportTitle: string;
+  excludedStudentIds: string[];
+}
+
 export function CustomTableControl() {
   const { classes } = useStore();
   const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
   const [columns, setColumns] = useState<ColumnConfig[]>(AVAILABLE_COLUMNS);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
-  const [reportTitle, setReportTitle] = useState('Relatório de Alunos');
+  const [reportTitle, setReportTitle] = useState(DEFAULT_REPORT_TITLE);
   const [excludedStudentIds, setExcludedStudentIds] = useState<string[]>([]);
 
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
+
+  const workspaceData = useMemo<CustomTableWorkspaceData>(
+    () => ({ selectedClassIds, columns, reportTitle, excludedStudentIds }),
+    [columns, excludedStudentIds, reportTitle, selectedClassIds],
+  );
+
+  const getWorkspaceName = useCallback((workspace: CustomTableWorkspaceData) => {
+    const suffix = workspace.selectedClassIds.length > 0 ? `${workspace.selectedClassIds.length}_turmas` : 'sem_turmas';
+    return `Tabelas_${suffix}`;
+  }, []);
+
+  const restoreWorkspace = useCallback((workspace: CustomTableWorkspaceData) => {
+    setSelectedClassIds(Array.isArray(workspace.selectedClassIds) ? workspace.selectedClassIds : []);
+    setColumns(Array.isArray(workspace.columns) ? workspace.columns : AVAILABLE_COLUMNS);
+    setReportTitle(workspace.reportTitle || DEFAULT_REPORT_TITLE);
+    setExcludedStudentIds(Array.isArray(workspace.excludedStudentIds) ? workspace.excludedStudentIds : []);
+  }, []);
+
+  const clearWorkspace = useCallback(() => {
+    setSelectedClassIds([]);
+    setColumns(AVAILABLE_COLUMNS);
+    setReportTitle(DEFAULT_REPORT_TITLE);
+    setExcludedStudentIds([]);
+  }, []);
+
+  const workspace = useWorkspacePersistence({
+    tabType: 'tables',
+    data: workspaceData,
+    onRestore: restoreWorkspace,
+    getDefaultName: getWorkspaceName,
+    isDataEmpty: (workspaceValue) =>
+      workspaceValue.selectedClassIds.length === 0 &&
+      workspaceValue.reportTitle === DEFAULT_REPORT_TITLE &&
+      workspaceValue.excludedStudentIds.length === 0 &&
+      JSON.stringify(workspaceValue.columns) === JSON.stringify(AVAILABLE_COLUMNS),
+  });
 
   // Filter classes to only show those that have students or are relevant? 
   // No, let user select any. But sorting by name is nice.
@@ -285,6 +332,14 @@ const loadImageAsBase64 = async (url: string, format: 'image/png' | 'image/jpeg'
 
   return (
     <div className="h-[calc(100vh-140px)] flex flex-col overflow-hidden">
+       <div className="mb-4 shrink-0">
+          <WorkspaceActions
+            tabType="tables"
+            controller={workspace}
+            defaultName={getWorkspaceName(workspaceData)}
+            onClearData={clearWorkspace}
+          />
+       </div>
        <Card className="flex flex-col h-full border-none shadow-none bg-transparent overflow-hidden">
           <CardHeader className="px-0 pt-0 shrink-0">
              <CardTitle className="flex items-center gap-2 text-xl">

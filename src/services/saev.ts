@@ -135,6 +135,44 @@ export class SaevService implements IExternalAuthService {
               'nao leitor': 'Não Leitor', 'nao fluente': 'Não Fluente', 'nao avaliado': 'Não Avaliado'
           };
 
+          const firstPresent = (...values: unknown[]) =>
+              values.find(value => value !== undefined && value !== null && value !== '');
+
+          const normalizeStudentName = (name: unknown) =>
+              String(name || '')
+                  .normalize('NFD')
+                  .replace(/[\u0300-\u036f]/g, '')
+                  .trim()
+                  .replace(/\s+/g, ' ')
+                  .toLowerCase();
+
+          const normalizeReadingLevel = (value: unknown): string => {
+              if (value === undefined || value === null || value === '') return '';
+
+              const raw = String(value).trim();
+              if (labelMap[raw]) return labelMap[raw];
+
+              const key = raw
+                  .normalize('NFD')
+                  .replace(/[\u0300-\u036f]/g, '')
+                  .toLowerCase()
+                  .replace(/[\s-]+/g, '_');
+
+              return labelMap[key] || raw;
+          };
+
+          // Mirrors the level calculation used by the SAEV Síntese Geral frontend.
+          const calculateLevel = (average: unknown): string => {
+              if (average === undefined || average === null || average === '') return '';
+
+              const numericAverage = Number(String(average).replace('%', '').replace(',', '.').trim());
+              if (!Number.isFinite(numericAverage)) return '';
+              if (numericAverage >= 75) return '4';
+              if (numericAverage >= 50) return '3';
+              if (numericAverage >= 25) return '2';
+              return '1';
+          };
+
           const subjectsToFetch = ['1', '2', '9999']; // 1=Português, 2=Matemática, 9999=Leitura
 
           for (const subjectId of subjectsToFetch) {
@@ -182,11 +220,31 @@ export class SaevService implements IExternalAuthService {
                               if (seenStudentSubject.has(studentKey)) return;
                               seenStudentSubject.add(studentKey);
                               
-                              const nivelRaw = s.type || s.level || s.nivel || '';
-                              const nivel = labelMap[nivelRaw] || nivelRaw;
+                              // In the SAEV response, the reading classification belongs
+                              // to the separate "Leitura" table and is stored in `type`.
+                              const nivel = normalizeReadingLevel(firstPresent(
+                                  s.type,
+                                  s.readingType,
+                                  s.reading_type,
+                                  s.leitura,
+                                  s.nivelLeitura,
+                                  s.nivel_leitura,
+                                  s.reading?.type,
+                                  s.reading?.level
+                              ));
                               const questions = new Map<number, { answer: string; correct: boolean }>();
-                              let media = s.percentage || s.average || s.media || s.percent_hit || '';
-                              let nivelNum = s.level_num || s.nivelNum || s.nivel_num || '';
+                              let media = firstPresent(
+                                  s.avg,
+                                  s.percentage,
+                                  s.average,
+                                  s.media,
+                                  s.percent_hit
+                              ) ?? '';
+                              let nivelNum = firstPresent(
+                                  s.level_num,
+                                  s.nivelNum,
+                                  s.nivel_num
+                              ) ?? '';
 
                               const processKeys = (obj: any, depth = 0, visited = new Set<any>()) => {
                                 if (!obj || depth > 10 || visited.has(obj)) return;
@@ -252,13 +310,15 @@ export class SaevService implements IExternalAuthService {
                               };
                               processKeys(s);
                               if (media && !String(media).includes('%')) media = `${media}%`;
+                              if (!nivelNum) nivelNum = calculateLevel(media);
 
                               allFluencyData.push({
                                   nome: s.name || s.nome || '',
                                   nivel: nivel,
+                                  studentId: firstPresent(s.id, s.studentId, s.student_id, s.alunoId, s.aluno_id),
                                   materia: subject,
-                                  media: media,
-                                  nivelNum: nivelNum,
+                                  media: String(media),
+                                  nivelNum: String(nivelNum),
                                   questions: questions
                               });
                           });
@@ -284,6 +344,34 @@ export class SaevService implements IExternalAuthService {
                   }
               });
           }
+
+          // The academic subject rows do not carry the reading classification.
+          // Join it from the SAEV "Leitura" table just as the web frontend does.
+          const readingById = new Map<string, string>();
+          const readingByName = new Map<string, string>();
+
+          allFluencyData
+              .filter(row => String(row.materia || '').toLowerCase().includes('leitura'))
+              .forEach(row => {
+                  if (!row.nivel) return;
+                  if (row.studentId !== undefined && row.studentId !== null) {
+                      readingById.set(String(row.studentId), row.nivel);
+                  }
+                  readingByName.set(normalizeStudentName(row.nome), row.nivel);
+              });
+
+          allFluencyData.forEach(row => {
+              if (String(row.materia || '').toLowerCase().includes('leitura')) return;
+
+              const readingLevel =
+                  (row.studentId !== undefined && row.studentId !== null
+                      ? readingById.get(String(row.studentId))
+                      : undefined) ||
+                  readingByName.get(normalizeStudentName(row.nome));
+
+              if (readingLevel) row.nivel = readingLevel;
+              if (!row.nivelNum) row.nivelNum = calculateLevel(row.media);
+          });
           
           if (allFluencyData.length > 0) {
               allCsvData.push({ type: 'FLUENCY_DETAIL', data: allFluencyData });
