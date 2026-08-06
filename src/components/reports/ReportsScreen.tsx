@@ -128,7 +128,9 @@ export function ReportsScreen() {
                 
                 const classesForSeries = await saevService.getFilterOptions('turma', { ...filters, serie: s.value });
                 classesForSeries.forEach(c => {
-                    targetClasses.push({ ...c, serieId: s.value });
+                    if (!targetClasses.some(tc => tc.value === c.value)) {
+                        targetClasses.push({ ...c, serieId: s.value });
+                    }
                 });
             }
 

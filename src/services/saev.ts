@@ -548,6 +548,109 @@ export class SaevService implements IExternalAuthService {
               console.error('[SaevService] Error fetching evolutionary-line:', e);
           }
 
+          // --- PERFORMANCE HISTORY FETCH ---
+          if (filters.includeHistory !== false) {
+              try {
+                  const studentHistoryMap = new Map<string, any>();
+
+                  const getOrCreateHistoryStudent = (rawName: string) => {
+                      const name = (rawName || '').trim();
+                      const key = name.toLowerCase();
+                      if (!studentHistoryMap.has(key)) {
+                          studentHistoryMap.set(key, {
+                              nome: name,
+                              results: {}
+                          });
+                      }
+                      return studentHistoryMap.get(key)!;
+                  };
+
+                  // Direct fetch from performance-history API
+                  const historyParams = new URLSearchParams({
+                      page: '1',
+                      limit: '999999',
+                      serie: filters.serie || '',
+                      year: filters.ano || '',
+                      isEpvPartner: '0', 
+                      typeSchool: filters.rede || '',
+                      stateId: filters.estado || '',
+                      stateRegionalId: filters.regionalEstadual || '',
+                      county: filters.municipio || '',
+                      municipalityOrUniqueRegionalId: filters.regionalMunicipal || '',
+                      school: filters.escola || '',
+                      schoolClass: filters.turma || ''
+                  });
+
+                  const historyUrl = `${this.apiBaseUrl}/reports/performance-history?${historyParams.toString()}`;
+                  console.log(`[SaevService] Fetching performance-history: ${historyUrl}`);
+                  
+                  const histResponse = await this.fetchWithRetry(historyUrl, { headers: this.getAuthHeaders() }).catch((err: any) => {
+                      console.warn(`[SaevService] performance-history fetch failed:`, err);
+                      return null;
+                  });
+
+                  if (histResponse && histResponse.ok) {
+                      const histData = await histResponse.json() as any;
+                      console.log('[SaevService] Received performance-history data snippet:', JSON.stringify(histData).substring(0, 500));
+
+                      const rawItems = Array.isArray(histData) ? histData : (histData?.items || histData?.data || []);
+                      
+                      rawItems.forEach((editionItem: any) => {
+                          const edName = editionItem.name || editionItem.edicao || editionItem.label || 'Avaliação';
+                          const tests = Array.isArray(editionItem.tests) ? editionItem.tests : 
+                                        (Array.isArray(editionItem.subjects) ? editionItem.subjects : [editionItem]);
+
+                          tests.forEach((test: any) => {
+                              const subject = test.subject || test.materia || test.title || editionItem.subject || 'Leitura';
+                              const students = Array.isArray(test.data) ? test.data : 
+                                               (Array.isArray(test.students) ? test.students : (Array.isArray(test.alunos) ? test.alunos : []));
+
+                              students.forEach((s: any) => {
+                                  const sName = s.name || s.nome || s.studentName;
+                                  if (!sName) return;
+
+                                  const hStudent = getOrCreateHistoryStudent(sName);
+                                  
+                                  const nivel = normalizeReadingLevel(firstPresent(
+                                      s.type, s.readingType, s.reading_type, s.leitura, s.nivelLeitura, s.nivel_leitura, s.reading?.type, s.reading?.level, s.nivel
+                                  ));
+                                  let media = firstPresent(s.avg, s.percentage, s.average, s.media, s.percent_hit) ?? '';
+                                  if (media !== '' && !String(media).includes('%')) media = `${media}%`;
+
+                                  const val = nivel || media;
+                                  if (val) {
+                                      const fullKey = `[${subject}] ${edName}`;
+                                      hStudent.results[fullKey] = String(val);
+                                  }
+                              });
+                          });
+                      });
+                  }
+
+                  // Fallback: populate history from allFluencyData if map is empty
+                  if (studentHistoryMap.size === 0 && allFluencyData.length > 0) {
+                      allFluencyData.forEach(row => {
+                          if (!row.nome) return;
+                          const hStudent = getOrCreateHistoryStudent(row.nome);
+                          const subject = row.materia || 'Leitura';
+                          const edName = filters.edicaoLabel || filters.edicao || 'Edição';
+                          const val = row.nivel || (row.media ? `${row.media}` : '');
+                          if (val) {
+                              hStudent.results[`[${subject}] ${edName}`] = String(val);
+                          }
+                      });
+                  }
+
+                  if (studentHistoryMap.size > 0) {
+                      const historyRows = Array.from(studentHistoryMap.values());
+                      console.log(`[SaevService] Built history data for ${historyRows.length} students across all editions.`);
+                      allCsvData.push({ type: 'HISTORY', data: historyRows });
+                  }
+              } catch (e: any) {
+                  console.error('[SaevService] Error fetching performance-history:', e);
+              }
+          }
+
           return allCsvData.length > 0 ? allCsvData : null;
       } catch (e: any) {
           console.error('[SaevService] Error in scrapeReportData:', e);

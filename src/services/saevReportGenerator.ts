@@ -386,7 +386,14 @@ const generateHistorySlide = (pres: PptxGenJS, data: HistoryStudent[]) => {
     return 'FFFFFF';
   };
 
-  const allKeys = Object.keys(data[0].results);
+  const allKeysSet = new Set<string>();
+  data.forEach(s => {
+    if (s.results) {
+      Object.keys(s.results).forEach(k => allKeysSet.add(k));
+    }
+  });
+  const allKeys = Array.from(allKeysSet);
+  if (allKeys.length === 0) return;
   const subjectGroups = new Map<string, string[]>();
   
   allKeys.forEach(key => {
@@ -1114,19 +1121,6 @@ export const generatePresentation = async (
           }
           bySubject.get(subject)!.push(student);
 
-          if (subject.toLowerCase().includes('leitura') || subject.toLowerCase().includes('portugu')) {
-             const n = (student.nivel || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-             
-             if (n.includes('fluente') && !n.includes('nao')) schoolAggregation.fluencyCounts.fluente++;
-             else if (n.includes('nao') && n.includes('fluente')) schoolAggregation.fluencyCounts.nao_fluente++;
-             else if (n.includes('frases')) schoolAggregation.fluencyCounts.frases++;
-             else if (n.includes('palavras')) schoolAggregation.fluencyCounts.palavras++;
-             else if (n.includes('silabas')) schoolAggregation.fluencyCounts.silabas++;
-             else if (n.includes('nao') && n.includes('leitor')) schoolAggregation.fluencyCounts.nao_leitor++;
-             else if (n.includes('nao') && n.includes('avaliado')) schoolAggregation.fluencyCounts.nao_avaliado++;
-             else if (n.includes('nao') && n.includes('informado')) schoolAggregation.fluencyCounts.nao_informado++;
-          }
-
           let score = 0;
           if (student.media) {
              const m = student.media.replace('%', '').trim();
@@ -1147,19 +1141,51 @@ export const generatePresentation = async (
           schoolAggregation.subjects[subject].studentCount++;
         });
         
-        for (const [subject, students] of bySubject) {
-          const isReadingSubject = subject.toLowerCase().includes('leitura') || 
-                                   subject.toLowerCase().includes('portugu');
-          
-          if (isReadingSubject) {
-            // Check if there is actual fluency data (not just scores)
+        // Find primary subject for fluency slides to avoid duplicate slides (e.g. Leitura vs Língua Portuguesa)
+        let primaryFluencySubject: string | null = null;
+        for (const [subject] of bySubject) {
+          if (subject.toLowerCase().includes('leitura')) {
+            primaryFluencySubject = subject;
+            break;
+          }
+        }
+        if (!primaryFluencySubject) {
+          for (const [subject, students] of bySubject) {
             const hasFluencyData = students.some(s => {
-                const n = (s.nivel || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-                return n.includes('fluente') || n.includes('frases') || n.includes('palavras') || 
-                       n.includes('silabas') || n.includes('leitor');
+              const n = (s.nivel || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+              return n.includes('fluente') || n.includes('frases') || n.includes('palavras') || 
+                     n.includes('silabas') || n.includes('leitor');
+            });
+            if (hasFluencyData) {
+              primaryFluencySubject = subject;
+              break;
+            }
+          }
+        }
+
+        if (primaryFluencySubject) {
+          const students = bySubject.get(primaryFluencySubject)!;
+          const hasFluencyData = students.some(s => {
+              const n = (s.nivel || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+              return n.includes('fluente') || n.includes('frases') || n.includes('palavras') || 
+                     n.includes('silabas') || n.includes('leitor');
+          });
+
+          if (hasFluencyData) {
+            // Count school fluency metrics ONCE per student in the primary fluency subject
+            students.forEach(student => {
+              const n = (student.nivel || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+              if (n.includes('fluente') && !n.includes('nao')) schoolAggregation.fluencyCounts.fluente++;
+              else if (n.includes('nao') && n.includes('fluente')) schoolAggregation.fluencyCounts.nao_fluente++;
+              else if (n.includes('frases')) schoolAggregation.fluencyCounts.frases++;
+              else if (n.includes('palavras')) schoolAggregation.fluencyCounts.palavras++;
+              else if (n.includes('silabas')) schoolAggregation.fluencyCounts.silabas++;
+              else if (n.includes('nao') && n.includes('leitor')) schoolAggregation.fluencyCounts.nao_leitor++;
+              else if (n.includes('nao') && n.includes('avaliado')) schoolAggregation.fluencyCounts.nao_avaliado++;
+              else if (n.includes('nao') && n.includes('informado')) schoolAggregation.fluencyCounts.nao_informado++;
             });
 
-            if (hasFluencyData) {
+            if (config.includeFluency !== false) {
               generateFluencyChartSlide(pres, students, className);
               await generateFluencyTableSlide(pres, students, className);
             }
@@ -1174,11 +1200,11 @@ export const generatePresentation = async (
     // Yield again
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    if (levelsSummary) {
+    if (levelsSummary && config.includeLevels !== false) {
       generateLevelsSlide(pres, levelsSummary.data as LevelsSummaryRow[], className);
     }
 
-    if (fluencyDetail) {
+    if (fluencyDetail && config.includeMatrix !== false) {
       try {
         const fluencyData = fluencyDetail.data as FluencyDetailRow[];
         
@@ -1204,11 +1230,11 @@ export const generatePresentation = async (
       }
     }
 
-    if (evolution) {
+    if (evolution && config.includeEvolution !== false) {
       generateEvolutionSlide(pres, evolution.data as EvolutionRow[], className);
     }
 
-    if (history) {
+    if (history && config.includeHistory !== false) {
       try {
         generateHistorySlide(pres, history.data as HistoryStudent[]);
       } catch (e) { 
@@ -1216,7 +1242,7 @@ export const generatePresentation = async (
       }
     }
 
-    if (evolution) {
+    if (evolution && config.includeEvolution !== false) {
       generateEvolutionLineSlides(pres, evolution.data as EvolutionRow[], className);
     }
 

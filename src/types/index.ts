@@ -151,6 +151,11 @@ export interface PresentationConfig {
   title: string;
   margin: number;
   backgroundColor: string;
+  includeFluency?: boolean;
+  includeLevels?: boolean;
+  includeMatrix?: boolean;
+  includeEvolution?: boolean;
+  includeHistory?: boolean;
 }
 
 export interface EvolutionRow {
