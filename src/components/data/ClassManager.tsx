@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { useStore } from '@/store/useStore';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -58,11 +58,16 @@ export function ClassManager() {
     setIsOpen(false);
   };
 
+  // Sub-stage active filter per class: classId -> stageName | 'all'
+  const [subStageFilters, setSubStageFilters] = useState<Record<string, string>>({});
+
   const handleImportSGEdu = (students: import('@/types').Student[], _professor?: string, className?: string, url?: string) => {
       if (!targetClassIdForImport || !className) return;
 
+      const detectedSubStages = Array.from(new Set(students.map(s => s.stage).filter(Boolean))) as string[];
       const updates: any = { students };
       if (url) updates.url = url;
+      if (detectedSubStages.length > 0) updates.subStages = detectedSubStages;
       
       updateClassStudents(targetClassIdForImport, students);
       updateClassGroup(targetClassIdForImport, updates);
@@ -253,8 +258,8 @@ export function ClassManager() {
                 </TableRow>
               ) : (
                 classes.map((cls) => (
-                  <>
-                  <TableRow key={cls.id} className={expandedClassId === cls.id ? "bg-muted/50" : ""}>
+                  <Fragment key={cls.id}>
+                  <TableRow className={expandedClassId === cls.id ? "bg-muted/50" : ""}>
                     <TableCell>
                         <Button variant="ghost" size="sm" onClick={() => toggleExpandRaw(cls.id)}>
                             {expandedClassId === cls.id ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -291,48 +296,97 @@ export function ClassManager() {
                       <TableRow>
                           <TableCell colSpan={5} className="p-0">
                               <div className="p-4 bg-muted/30">
-                                  <div className="flex justify-between items-center mb-2">
-                                      <h4 className="text-sm font-semibold">Lista de Alunos</h4>
-                                      <div className="flex gap-2">
-                                          <Button variant="outline" size="sm" onClick={async () => {
-                                              if (await requireSession()) {
-                                                  setTargetClassIdForImport(cls.id);
-                                                  setIsImportOpen(true);
-                                              }
-                                          }}>
-                                              <CloudDownload className="mr-2 h-4 w-4" />
-                                              Importar do SGEdu
-                                          </Button>
-                                          <Button variant="outline" size="sm" onClick={() => openManualAdd(cls.id)}>
-                                              <User className="mr-2 h-4 w-4" />
-                                              Adicionar Alunos
-                                          </Button>
-                                      </div>
-                                  </div>
-                                  
-                                  {(!cls.students || cls.students.length === 0) ? (
-                                      <p className="text-sm text-muted-foreground">Nenhum aluno cadastrado nesta turma.</p>
-                                  ) : (
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                                          {cls.students.map(student => (
-                                              <div 
-                                                key={student.id} 
-                                                className="flex items-center gap-2 p-2 rounded-md bg-background border hover:bg-accent cursor-pointer transition-colors"
-                                                onClick={() => handleStudentClick(student, cls.id)}
-                                              >
-                                                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                                                      <User className="h-4 w-4 text-muted-foreground" />
+                                  {(() => {
+                                      const allStudents = cls.students || [];
+                                      const stagesInClass = Array.from(
+                                          new Set([
+                                              ...(cls.subStages || []),
+                                              ...allStudents.map(s => s.stage).filter(Boolean) as string[]
+                                          ])
+                                      );
+                                      const currentFilter = subStageFilters[cls.id] || 'all';
+                                      const filteredStudents = currentFilter === 'all'
+                                          ? allStudents
+                                          : allStudents.filter(s => s.stage === currentFilter);
+
+                                      return (
+                                          <>
+                                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                                                  <div className="flex items-center gap-2">
+                                                      <h4 className="text-sm font-semibold">Lista de Alunos</h4>
+                                                      {stagesInClass.length > 0 && (
+                                                          <div className="flex gap-1 bg-background border p-1 rounded-md">
+                                                              <button
+                                                                  type="button"
+                                                                  className={`px-2 py-0.5 text-xs font-medium rounded ${currentFilter === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                                                                  onClick={() => setSubStageFilters(prev => ({ ...prev, [cls.id]: 'all' }))}
+                                                              >
+                                                                  Todos ({allStudents.length})
+                                                              </button>
+                                                              {stagesInClass.map(st => {
+                                                                  const count = allStudents.filter(s => s.stage === st).length;
+                                                                  return (
+                                                                      <button
+                                                                          key={st}
+                                                                          type="button"
+                                                                          className={`px-2 py-0.5 text-xs font-medium rounded ${currentFilter === st ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                                                                          onClick={() => setSubStageFilters(prev => ({ ...prev, [cls.id]: st }))}
+                                                                      >
+                                                                          {st} ({count})
+                                                                      </button>
+                                                                  );
+                                                              })}
+                                                          </div>
+                                                      )}
                                                   </div>
-                                                  <span className="text-sm truncate">{student.name}</span>
+                                                  <div className="flex gap-2">
+                                                      <Button variant="outline" size="sm" onClick={() => {
+                                                          setTargetClassIdForImport(cls.id);
+                                                          setIsImportOpen(true);
+                                                      }}>
+                                                          <CloudDownload className="mr-2 h-4 w-4" />
+                                                          Importar do SGEdu
+                                                      </Button>
+                                                      <Button variant="outline" size="sm" onClick={() => openManualAdd(cls.id)}>
+                                                          <User className="mr-2 h-4 w-4" />
+                                                          Adicionar Alunos
+                                                      </Button>
+                                                  </div>
                                               </div>
-                                          ))}
-                                      </div>
-                                  )}
+                                              
+                                              {filteredStudents.length === 0 ? (
+                                                  <p className="text-sm text-muted-foreground">Nenhum aluno cadastrado nesta aba.</p>
+                                              ) : (
+                                                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                                      {filteredStudents.map(student => (
+                                                          <div 
+                                                            key={student.id} 
+                                                            className="flex items-center justify-between p-2 rounded-md bg-background border hover:bg-accent cursor-pointer transition-colors"
+                                                            onClick={() => handleStudentClick(student, cls.id)}
+                                                          >
+                                                              <div className="flex items-center gap-2 truncate">
+                                                                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                                                                      <User className="h-4 w-4 text-muted-foreground" />
+                                                                  </div>
+                                                                  <span className="text-sm truncate">{student.name}</span>
+                                                              </div>
+                                                              {student.stage && (
+                                                                  <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded shrink-0 ml-2 font-medium">
+                                                                      {student.stage}
+                                                                  </span>
+                                                              )}
+                                                          </div>
+                                                      ))}
+                                                  </div>
+                                              )}
+                                          </>
+                                      );
+                                  })()}
                               </div>
                           </TableCell>
                       </TableRow>
                   )}
-                  </>
+                  </Fragment>
                 ))
               )}
             </TableBody>

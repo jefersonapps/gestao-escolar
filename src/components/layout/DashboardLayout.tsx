@@ -11,7 +11,8 @@ import {
     Menu,
     Search,
     TableProperties,
-    BarChart3
+    BarChart3,
+    AlertTriangle
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -50,6 +51,7 @@ const sidebarItems = [
   { id: 'schedule', label: 'Horário Escolar', icon: Calendar },
   { id: 'attendance', label: 'Frequência', icon: ClipboardList },
   { id: 'infrequency', label: 'Infrequência', icon: UserMinus },
+  { id: 'inconsistencies', label: 'Inconsistências', icon: AlertTriangle },
   { id: 'tables', label: 'Tabelas', icon: TableProperties },
   { id: 'charts', label: 'Gráficos', icon: BarChart3 },
   { id: 'reports', label: 'Relatórios', icon: clipboardListIcon },

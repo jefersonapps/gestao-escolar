@@ -649,57 +649,205 @@ export class SGEduService implements IExternalAuthService {
       }
       return null;
   }
+
   async getStudentsFromClass(classIdOrUrl: string): Promise<{ professor: string, students: import('../types').Student[] }> {
     try {
-      // Ensure we have an absolute URL
       const url = classIdOrUrl.startsWith('http') 
           ? classIdOrUrl 
-          : (classIdOrUrl.startsWith('/') ? `${SGEduService.BASE_URL}${classIdOrUrl}` : `${SGEduService.BASE_URL}/alunos/turma/${classIdOrUrl}`);
+          : (classIdOrUrl.startsWith('/') ? `${SGEduService.BASE_URL}${classIdOrUrl}` : `${SGEduService.BASE_URL}/turmas/${classIdOrUrl}`);
           
-      console.log('Fetching students from class URL:', url);
+      console.log('[SGEdu] getStudentsFromClass requested URL:', url);
       
       const res = await fetch(url, {
         method: 'GET',
         headers: this.getHeaders()
       });
+
+      console.log('[SGEdu] Response status:', res.status, 'Final URL:', res.url);
+
       const html = await res.text();
+      console.log('[SGEdu] HTML length received:', html.length);
+
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
 
       // Extract Professor Name
       let professor = '';
-      const h5s = doc.querySelectorAll('h5');
+      const h5s = doc.querySelectorAll('h5, h4, .professor-name, .info-box-text, p, div, span, td, .class-teacher-line');
       h5s.forEach(h5 => {
           if (h5.textContent?.includes('Professor')) {
-             professor = h5.textContent.split(':')[1]?.trim() || '';
+             const parts = h5.textContent.split(':');
+             if (parts.length > 1) {
+                 professor = parts[1].trim();
+             }
           }
       });
 
       const students: import('../types').Student[] = [];
-      const rows = doc.querySelectorAll('table.table tbody tr');
+      const addedIds = new Set<string>();
 
-      rows.forEach(row => {
-          const cells = row.querySelectorAll('td');
-          if (cells.length > 1) {
-              const nameLink = cells[1].querySelector('a');
-              const name = nameLink?.textContent?.trim() || '';
-              // Try to extract the ID from the href URL "https://www.sgedu.com.br/alunos/26831"
-              let id = '';
-              const href = nameLink?.getAttribute('href');
-              if (href) {
-                  const parts = href.split('/');
-                  id = parts[parts.length - 1]; // e.g. "26831"
-              }
-              
-              if (id && name) {
-                  students.push({ id, name });
+      // Search root for main content container
+      const mainContent = doc.querySelector('.content-wrapper, .content, .main-content, #content, .class-show-page, body') || doc.body;
+
+      // Helper to check if a row or container indicates a transferred/inactive student
+      const isTransferredOrInactive = (el: Element): boolean => {
+          const badgeEls = el.querySelectorAll('.class-student-badges, .badge, .label, .tag, .status, span');
+          for (const b of Array.from(badgeEls)) {
+              const text = b.textContent?.trim().toLowerCase() || '';
+              if (
+                  text.includes('transferid') || 
+                  text.includes('cancelad') || 
+                  text.includes('desistent') || 
+                  text.includes('inativ') || 
+                  text.includes('evadid') || 
+                  text.includes('remanejad') ||
+                  text.includes('desvinculad')
+              ) {
+                  return true;
               }
           }
-      });
+          return false;
+      };
 
+      // Helper to add a student safely
+      const addStudent = (id: string, rawName: string, stageName?: string) => {
+          let name = rawName.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+          name = name.replace(/\s*\(PCD\)\s*/gi, '').trim();
+
+          if (!name || name.length < 2 || /^(ações|acoes|opções|opcoes|nome|matrícula|matricula|#|\d+|alunos|professor)$/i.test(name)) {
+              return;
+          }
+
+          if (id && !addedIds.has(id)) {
+              addedIds.add(id);
+              const cleanStage = (stageName && !/turma/i.test(stageName) && !/navega/i.test(stageName)) 
+                  ? stageName.trim() 
+                  : undefined;
+
+              students.push({
+                  id,
+                  name,
+                  ...(cleanStage ? { stage: cleanStage } : {})
+              });
+          }
+      };
+
+      // 1. Modern SGEdu Layout: DIV-based extraction (.class-student-row)
+      const studentRows = mainContent.querySelectorAll('.class-student-row, [class*="student-row"]');
+      console.log(`[SGEdu] Found ${studentRows.length} div.class-student-row elements`);
+
+      if (studentRows.length > 0) {
+          studentRows.forEach(row => {
+              if (isTransferredOrInactive(row)) {
+                  console.log(`[SGEdu] Skipping transferred/inactive student in row:`, row.querySelector('.class-student-name')?.textContent?.trim());
+                  return;
+              }
+
+              const pane = row.closest('.tab-pane');
+              let stageName = '';
+              if (pane) {
+                  const paneId = pane.getAttribute('id');
+                  if (paneId) {
+                      const tabLink = mainContent.querySelector(`a[href="#${paneId}"], a[data-target="#${paneId}"], a[aria-controls="${paneId}"]`);
+                      if (tabLink) stageName = tabLink.textContent?.trim() || '';
+                  }
+                  if (!stageName) {
+                      stageName = pane.querySelector('h3, h4, h5, .tab-title, .nav-link.active')?.textContent?.trim() || '';
+                  }
+              }
+
+              const nameLink = row.querySelector('.class-student-name a, .class-student-main a, a');
+              const nameText = row.querySelector('.class-student-name, .class-student-main')?.textContent || '';
+
+              if (nameLink) {
+                  const href = nameLink.getAttribute('href') || '';
+                  const name = nameLink.textContent?.trim() || '';
+                  const parts = href.split('?')[0].split('#')[0].split('/').filter(Boolean);
+                  const lastPart = parts[parts.length - 1];
+                  const id = (lastPart && /^\d+$/.test(lastPart)) 
+                      ? lastPart 
+                      : name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '-');
+                  
+                  if (name) {
+                      addStudent(id, name, stageName);
+                  }
+              } else if (nameText) {
+                  const id = nameText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '-');
+                  addStudent(id, nameText, stageName);
+              }
+          });
+      }
+
+      // 2. Legacy SGEdu Layout: TABLE-based extraction
+      if (students.length === 0) {
+          const tableRows = mainContent.querySelectorAll('table tbody tr, table tr');
+          console.log(`[SGEdu] Table fallback scanning ${tableRows.length} rows`);
+          tableRows.forEach(row => {
+              if (isTransferredOrInactive(row)) return;
+
+              const pane = row.closest('.tab-pane');
+              let stageName = '';
+              if (pane) {
+                  const paneId = pane.getAttribute('id');
+                  if (paneId) {
+                      const tabLink = mainContent.querySelector(`a[href="#${paneId}"], a[data-target="#${paneId}"], a[aria-controls="${paneId}"]`);
+                      if (tabLink) stageName = tabLink.textContent?.trim() || '';
+                  }
+                  if (!stageName) {
+                      stageName = pane.querySelector('h3, h4, h5, .tab-title, .nav-link.active')?.textContent?.trim() || '';
+                  }
+              }
+
+              const nameLink = row.querySelector('td a, a');
+              const cells = Array.from(row.querySelectorAll('td'));
+              const name = nameLink?.textContent?.trim() || cells[1]?.textContent?.trim() || cells[0]?.textContent?.trim() || '';
+              const href = nameLink?.getAttribute('href') || '';
+              const parts = href.split('?')[0].split('#')[0].split('/').filter(Boolean);
+              const lastPart = parts[parts.length - 1];
+              const id = (lastPart && /^\d+$/.test(lastPart)) 
+                  ? lastPart 
+                  : name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '-');
+
+              if (name) {
+                  addStudent(id, name, stageName);
+              }
+          });
+      }
+
+      // 3. Universal Fallback: ANY Student Link Extraction (a[href*="/alunos/"])
+      if (students.length === 0) {
+          const allStudentLinks = mainContent.querySelectorAll('a[href*="/alunos/"]');
+          console.log(`[SGEdu] Link fallback scanning ${allStudentLinks.length} a[href*="/alunos/"] elements`);
+          allStudentLinks.forEach(link => {
+              const href = link.getAttribute('href') || '';
+              if (/\/turma/i.test(href) || /\/professores/i.test(href) || /\/escola/i.test(href)) return;
+
+              const parentRow = link.closest('.class-student-row, tr, li, div') || link.parentElement;
+              if (parentRow && isTransferredOrInactive(parentRow)) return;
+
+              const parts = href.split('?')[0].split('#')[0].split('/').filter(Boolean);
+              const lastPart = parts[parts.length - 1];
+              if (lastPart && /^\d+$/.test(lastPart)) {
+                  const name = link.textContent?.trim() || '';
+                  const pane = link.closest('.tab-pane');
+                  let stageName = '';
+                  if (pane) {
+                      stageName = pane.querySelector('h3, h4, h5, .tab-title, .nav-link.active')?.textContent?.trim() || '';
+                  }
+                  if (name) {
+                      addStudent(lastPart, name, stageName);
+                  }
+              }
+          });
+      }
+
+      // Sort students alphabetically by name
+      students.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+      console.log(`[SGEdu] Successfully extracted ${students.length} students from class URL (${url})`);
       return { professor, students };
     } catch (e) {
-      console.error('Error fetching class details:', e);
+      console.error('[SGEdu] Error fetching class details:', e);
       return { professor: '', students: [] };
     }
   }

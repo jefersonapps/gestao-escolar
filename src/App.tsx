@@ -13,6 +13,7 @@ import { Toaster } from "@/components/ui/sonner";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { InfrequencyControl } from './components/attendance/InfrequencyControl';
+import { InconsistencyControl } from './components/inconsistencies/InconsistencyControl';
 import { CustomTableControl } from './components/custom-table/CustomTableControl';
 import { CustomChartsControl } from './components/custom-charts/CustomChartsControl';
 import { useStore } from '@/store/useStore';
@@ -82,6 +83,8 @@ function App() {
         {activeTab === 'attendance' && <AttendanceSheet />}
         
         {activeTab === 'infrequency' && <InfrequencyControl />}
+
+        {activeTab === 'inconsistencies' && <InconsistencyControl />}
 
         {activeTab === 'tables' && <CustomTableControl />}
 

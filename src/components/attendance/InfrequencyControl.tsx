@@ -112,19 +112,43 @@ export function InfrequencyControl() {
   };
 
   const handleImportFromStore = () => {
-    const newData: InfrequencyData[] = classes.map(cls => {
-       const existing = data.find(d => d.id === cls.id);
-       return {
-         id: cls.id,
-         name: cls.name.replace(/\s*-\s*\d{4}$/, ''), // Remove " - YYYY" suffix
-         totalStudents: cls.students?.length || 0,
-         faults: existing ? existing.faults : 0,
-         observations: existing ? existing.observations : ''
-       };
+    const newData: InfrequencyData[] = [];
+    
+    classes.forEach(cls => {
+       const stagesInClass = Array.from(new Set([
+          ...(cls.subStages || []),
+          ...(cls.students || []).map(s => s.stage).filter(Boolean) as string[]
+       ]));
+       const cleanClassName = cls.name.replace(/\s*-\s*\d{4}$/, '');
+
+       if (stagesInClass.length > 0) {
+          stagesInClass.forEach(stageName => {
+             const subStudents = (cls.students || []).filter(s => s.stage === stageName);
+             const subId = `${cls.id}-${stageName}`;
+             const formattedName = `${cleanClassName} (${stageName})`;
+             const existing = data.find(d => d.id === subId || d.name === formattedName);
+             newData.push({
+                id: subId,
+                name: formattedName,
+                totalStudents: subStudents.length,
+                faults: existing ? existing.faults : 0,
+                observations: existing ? existing.observations : ''
+             });
+          });
+       } else {
+          const existing = data.find(d => d.id === cls.id);
+          newData.push({
+             id: cls.id,
+             name: cleanClassName,
+             totalStudents: cls.students?.length || 0,
+             faults: existing ? existing.faults : 0,
+             observations: existing ? existing.observations : ''
+          });
+       }
     });
     
     setData(sortData(newData));
-    toast.success('Dados importados das turmas cadastradas.');
+    toast.success('Dados importados das turmas cadastradas (com separação por abas).');
   };
 
   const handleManualAdd = () => {

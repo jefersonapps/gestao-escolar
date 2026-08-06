@@ -25,6 +25,7 @@ interface ColumnConfig {
 }
 
 const AVAILABLE_COLUMNS: ColumnConfig[] = [
+  { id: 'stage', label: 'Etapa / Série (Sub-turma)', field: 'stage', checked: false, width: 25 },
   { id: 'educacensoId', label: 'ID Educacenso', field: 'educacensoId', checked: false, width: 20 },
   { id: 'name', label: 'Nome do Estudante', field: 'name', checked: true, width: 60 },
   { id: 'email', label: 'E-mail', field: 'email', checked: false, width: 40 },

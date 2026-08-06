@@ -267,6 +267,15 @@ export function StudentDetailsDialog({ student, classId, isOpen, onClose, onRefr
                                         maxLength={10}
                                     />
                                 </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="stage">Etapa / Sub-turma</Label>
+                                    <Input 
+                                        id="stage" 
+                                        value={formData.stage || ''} 
+                                        onChange={(e) => handleChange('stage', e.target.value)} 
+                                        placeholder="Ex: Pré I, Pré II"
+                                    />
+                                </div>
                             </div>
                             <div className="grid gap-4 mt-2 border-t pt-4">
                                 <h4 className="font-medium text-sm">Informações Adicionais / Documentos</h4>
@@ -298,7 +307,14 @@ export function StudentDetailsDialog({ student, classId, isOpen, onClose, onRefr
                         </div>
                     ) : (
                         <div className="text-center sm:text-left space-y-1">
-                            <h3 className="text-xl font-semibold">{student.name}</h3>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="text-xl font-semibold">{student.name}</h3>
+                                {student.stage && (
+                                    <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded font-medium">
+                                        {student.stage}
+                                    </span>
+                                )}
+                            </div>
                             <p className="text-sm text-muted-foreground">ID: {student.id}</p>
                             <div className="flex flex-wrap gap-4 justify-center sm:justify-start mt-2">
                                 {student.cpf && (

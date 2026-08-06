@@ -79,28 +79,28 @@ export function AttendanceSheet() {
       !data.newName.trim(),
   });
 
-  // Auto-load students when class is selected
+  const [selectedSubStage, setSelectedSubStage] = useState<string>('all');
+
+  // Auto-load students when class or selectedSubStage is selected
   useEffect(() => {
     if (skipClassAutoLoadRef.current) {
       skipClassAutoLoadRef.current = false;
       return;
     }
 
-    // If no class is selected (empty string), do nothing (or clear?)
     if (!turma) return;
 
-    // Use registeredClasses from the store directly, which was destructured from the hook
     const selectedClass = registeredClasses.find(c => c.name === turma);
     
-    // If class found and has students, load them
     if (selectedClass?.students && selectedClass.students.length > 0) {
-      setStudents(selectedClass.students.map(s => s.name));
+      const filtered = selectedSubStage === 'all'
+        ? selectedClass.students
+        : selectedClass.students.filter(s => s.stage === selectedSubStage);
+      setStudents(filtered.map(s => s.name));
     } else if (selectedClass) {
-        // If class is known but has no students saved, clear the list to avoid confusion 
-        // with previous class's students.
         setStudents([]);
     }
-  }, [turma, registeredClasses]);
+  }, [turma, registeredClasses, selectedSubStage]);
 
   const sortedStudents = [...students].sort((a, b) =>
     a.localeCompare(b, 'pt-BR', { sensitivity: 'base' })
@@ -163,14 +163,15 @@ export function AttendanceSheet() {
   const handleExportPdf = useCallback(async () => {
     if (sortedStudents.length === 0) return;
     const [year, month] = monthYear.split('-').map(Number);
+    const exportTurmaTitle = selectedSubStage !== 'all' ? `${turma} (${selectedSubStage})` : turma;
     await exportAttendancePdf({
-      turma,
+      turma: exportTurmaTitle,
       professor,
       month,
       year,
       students: sortedStudents,
     });
-  }, [turma, professor, monthYear, sortedStudents]);
+  }, [turma, professor, monthYear, sortedStudents, selectedSubStage]);
 
   const handleSGEduImport = (importedStudents: import('@/types').Student[], importedProfessor?: string, importedClassName?: string) => {
     const studentNames = importedStudents.map(s => s.name);
@@ -221,7 +222,10 @@ export function AttendanceSheet() {
               <div className="flex gap-2">
                 <Select
                   value={registeredClasses.some((c) => c.name === turma) ? turma : ''}
-                  onValueChange={(val) => setTurma(val)}
+                  onValueChange={(val) => {
+                    setTurma(val);
+                    setSelectedSubStage('all');
+                  }}
                 >
                   <SelectTrigger className="flex-1">
                     <SelectValue placeholder="Selecionar turma" />
@@ -251,6 +255,42 @@ export function AttendanceSheet() {
                 onChange={(e) => setTurma(e.target.value)}
               />
             )}
+
+            {(() => {
+              const currentClass = registeredClasses.find(c => c.name === turma);
+              if (!currentClass) return null;
+              const stagesInClass = Array.from(new Set([
+                ...(currentClass.subStages || []),
+                ...(currentClass.students || []).map(s => s.stage).filter(Boolean) as string[]
+              ]));
+              if (stagesInClass.length === 0) return null;
+
+              return (
+                <div className="flex items-center gap-1 mt-2 bg-muted/40 p-1.5 rounded-md border">
+                  <span className="text-xs font-semibold mr-1 text-muted-foreground">Aba / Etapa:</span>
+                  <button
+                    type="button"
+                    className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${selectedSubStage === 'all' ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-background hover:bg-muted text-foreground'}`}
+                    onClick={() => setSelectedSubStage('all')}
+                  >
+                    Todas ({currentClass.students?.length || 0})
+                  </button>
+                  {stagesInClass.map(st => {
+                    const count = (currentClass.students || []).filter(s => s.stage === st).length;
+                    return (
+                      <button
+                        key={st}
+                        type="button"
+                        className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${selectedSubStage === st ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-background hover:bg-muted text-foreground'}`}
+                        onClick={() => setSelectedSubStage(st)}
+                      >
+                        {st} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
           <div className="space-y-2">
             <Label htmlFor="professor">Professor(a)</Label>

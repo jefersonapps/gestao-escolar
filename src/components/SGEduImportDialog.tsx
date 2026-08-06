@@ -39,6 +39,7 @@ export function SGEduImportDialog({
   const [loadingStudent, setLoadingStudent] = useState('');
   const [classes, setClasses] = useState<SGEduClass[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedImportClassId, setSelectedImportClassId] = useState<string | null>(null);
   const { requireSession, service } = useExternalAuth('sgedu');
   const sgeService = service as SGEduService;
   
@@ -46,17 +47,19 @@ export function SGEduImportDialog({
   useEffect(() => {
     if (isOpen && sgeduUser && step === 'select-class') {
         if (mode === 'class' && classes.length === 0) {
+            setIsLoading(true);
             loadClasses();
         } else if (mode === 'professor') {
+            setIsLoading(true);
             handleImportProfessors();
         }
     }
   }, [isOpen, sgeduUser, step, mode]);
 
   const handleImportProfessors = async () => {
-    if (!(await requireSession())) return;
     setIsLoading(true);
     try {
+        if (!(await requireSession())) return;
         const profs = await sgeService.getProfessors();
         if (profs.length > 0) {
             if (onImportProfessors) {
@@ -117,9 +120,9 @@ export function SGEduImportDialog({
   };
 
   const loadClasses = async () => {
-    if (!(await requireSession())) return;
     setIsLoading(true);
     try {
+      if (!(await requireSession())) return;
       const data = await sgeService.getClasses();
       setClasses(data);
       setStep('select-class');
@@ -131,21 +134,30 @@ export function SGEduImportDialog({
   };
 
   const handleSelectClass = async (cls: SGEduClass) => {
-    if (!(await requireSession())) return;
+    // Set immediate loading state visually BEFORE any async network calls
+    setSelectedImportClassId(cls.id);
     setIsLoading(true);
     setLoadingProgress(0);
+    setLoadingStudent('Conectando ao SGEdu...');
+
     try {
+      if (!(await requireSession())) {
+        setIsLoading(false);
+        setSelectedImportClassId(null);
+        return;
+      }
+
       toast.info(`Iniciando importação completa de ${cls.name}... Por favor, aguarde.`);
       const { professor, students } = await sgeService.getStudentsFromClass(cls.url);
       
       if (students.length === 0) {
         toast.warning('Nenhum aluno encontrado nesta turma.');
         setIsLoading(false);
+        setSelectedImportClassId(null);
         return;
       }
       
       const detailedStudents = [];
-      // Removed TEST MODE limit
       for (let i = 0; i < students.length; i++) {
           const s = students[i];
           setLoadingProgress(Math.round(((i + 1) / students.length) * 100)); // Show progress
@@ -162,12 +174,11 @@ export function SGEduImportDialog({
               console.error(`Falha ao buscar detalhes do aluno ${s.name}`, e);
               detailedStudents.push(s);
           }
-          // Dynamic delay to be respectful to the server
+          // Respectful delay for server
           await new Promise(r => setTimeout(r, 400)); 
       }
 
       toast.success(`${detailedStudents.length} alunos importados detalhadamente!`);
-      // Pass back full data
       onImport(detailedStudents, professor, cls.name, cls.url);
       onClose();
     } catch (e) {
@@ -175,6 +186,7 @@ export function SGEduImportDialog({
       console.error(e);
     } finally {
       setIsLoading(false);
+      setSelectedImportClassId(null);
       setLoadingProgress(0);
       setLoadingStudent('');
     }
@@ -249,22 +261,26 @@ export function SGEduImportDialog({
           </form>
         ) : (
           <div className="space-y-4 py-4">
-             {isLoading && (mode === 'professor' || loadingProgress > 0) ? (
+             {isLoading && (mode === 'professor' || selectedImportClassId !== null) ? (
                  <div className="flex flex-col items-center justify-center py-8 space-y-4">
                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
                      <div className="text-sm text-muted-foreground text-center">
                            {mode === 'class' 
                                ? (
                                    <>
-                                       <div>Importando alunos... {loadingProgress}%</div>
-                                       {loadingStudent && <div className="text-xs opacity-75 mt-1 truncate max-w-62.5">Lendo: {loadingStudent}</div>}
+                                       <div className="font-semibold text-foreground">
+                                           {loadingProgress > 0 
+                                               ? `Importando alunos... ${loadingProgress}%`
+                                               : 'Buscando lista de alunos da turma no SGEdu...'}
+                                       </div>
+                                       {loadingStudent && <div className="text-xs text-muted-foreground mt-1 truncate max-w-62.5">{loadingStudent}</div>}
                                    </>
                                )
                                : mode === 'professor'
                                ? 'Importando lista de professores...'
                                : 'Carregando lista de turmas...'}
                      </div>
-                     {mode === 'class' && (
+                     {mode === 'class' && loadingProgress > 0 && (
                         <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
                             <div 
                                 className="h-full bg-primary transition-all duration-300"
@@ -284,31 +300,42 @@ export function SGEduImportDialog({
                           className="pl-8"
                           value={searchQuery}
                           onChange={e => setSearchQuery(e.target.value)}
+                          disabled={isLoading}
                         />
                      </div>
 
                      <ScrollArea className="h-75 rounded-md border p-2 mt-4">
-                        {isLoading ? (
-                           <div className="flex justify-center p-4">
-                              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                        {isLoading && classes.length === 0 ? (
+                           <div className="flex flex-col items-center justify-center py-12 space-y-3">
+                              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                              <div className="text-sm font-medium text-muted-foreground">Conectando ao SGEdu e buscando turmas...</div>
                            </div>
                         ) : filteredClasses.length === 0 ? (
-                           <div className="text-center p-4 text-muted-foreground">Nenhuma turma encontrada.</div>
+                           <div className="text-center p-8 text-muted-foreground">
+                              {searchQuery ? 'Nenhuma turma encontrada para a busca.' : 'Nenhuma turma disponível no SGEdu.'}
+                           </div>
                         ) : (
                            <div className="space-y-1">
                               {filteredClasses.map(cls => (
                                  <button
                                    key={cls.id}
                                    onClick={() => handleSelectClass(cls)}
-                                   className="w-full text-left px-3 py-2 rounded-md hover:bg-accent text-sm flex items-center justify-between group"
+                                   disabled={isLoading || selectedImportClassId !== null}
+                                   className="w-full text-left px-3 py-2.5 rounded-md hover:bg-accent text-sm flex items-center justify-between group disabled:opacity-50 transition-colors"
                                  >
                                     <div>
                                        <div className="font-medium">{cls.name}</div>
                                        <div className="text-xs text-muted-foreground">{cls.shift || 'Turno não informado'}</div>
                                     </div>
                                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                        <Users className="h-3 w-3" />
-                                        {cls.studentsCount}
+                                        {selectedImportClassId === cls.id ? (
+                                            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                        ) : (
+                                            <>
+                                                <Users className="h-3.5 w-3.5" />
+                                                {cls.studentsCount}
+                                            </>
+                                        )}
                                     </div>
                                  </button>
                               ))}
@@ -319,7 +346,7 @@ export function SGEduImportDialog({
                  ) : (
                     <div className="text-center p-4 text-muted-foreground">
                        Nenhum professor encontrado. Se você vê esta mensagem, a importação automática falhou. 
-                       Tente novamente ou verifique se está logado corretament.
+                       Tente novamente ou verifique se está logado corretamente.
                     </div>
                  )}
                  </>

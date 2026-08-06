@@ -101,6 +101,8 @@ export interface Student {
   fatherCpf?: string;
   motherName?: string;
   motherCpf?: string;
+  // Stage / Sub-turma (e.g. "Pré I", "Pré II" for multiseriada classes)
+  stage?: string;
 }
 
 export interface ClassGroup {
@@ -110,7 +112,7 @@ export interface ClassGroup {
   sgeduId?: string; // Link to SGEdu class ID
   url?: string; // Full SGEdu URL
   students?: Student[];
-  // Specific constraints for this class?
+  subStages?: string[]; // e.g. ["Pré I", "Pré II"] for multiseriada / multietária classes
 }
 
 // The actual schedule assignment
