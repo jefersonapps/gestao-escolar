@@ -533,8 +533,8 @@ export class SaevService implements IExternalAuthService {
                               rows.push({
                                   edicao,
                                   materia,
-                                  participacao: fields.part,
-                                  acertos: fields.res
+                                  participacao: Math.round(fields.part),
+                                  acertos: Math.round(fields.res)
                               });
                           }
                       });

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Play, BarChart2, PieChart, Grid, TrendingUp, History, SlidersHorizontal } from 'lucide-react';
+import { Loader2, Play, BarChart2, PieChart, Grid, TrendingUp, History, SlidersHorizontal, FileSpreadsheet, Compass } from 'lucide-react';
 import { useExternalAuth } from '@/hooks/useExternalAuth';
 import { SaevService } from '@/services/saev';
 
@@ -21,6 +21,8 @@ export interface SaevFilters {
     escola: string;
     escolaLabel?: string;
     turma: string;
+    outputType?: 'pptx' | 'pdf' | 'both';
+    pdfOrientation?: 'portrait' | 'landscape';
     includeFluency?: boolean;
     includeLevels?: boolean;
     includeMatrix?: boolean;
@@ -54,6 +56,8 @@ const DEFAULT_FILTERS: SaevFilters = {
     regionalMunicipal: '',
     escola: '',
     turma: '',
+    outputType: 'pptx',
+    pdfOrientation: 'portrait',
     includeFluency: true,
     includeLevels: true,
     includeMatrix: true,
@@ -249,14 +253,59 @@ export function SaevFilterForm({ onSubmit, isLoading, initialFilters, restoreTok
                 </div>
             </div>
 
-            {/* Slide Customization Section */}
+            {/* Report Format & Slide Customization Section */}
             <div className="rounded-xl border border-green-100 bg-green-50/40 p-5 space-y-4">
                 <div className="flex items-center gap-2 text-green-900 font-semibold text-base">
                     <SlidersHorizontal className="w-5 h-5 text-green-700" />
-                    <span>Conteúdo da Apresentação (Slides Incluídos)</span>
+                    <span>Configuração do Relatório & Conteúdo</span>
                 </div>
+
+                {/* Output Format & PDF Orientation Selectors */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-2 border-b border-green-200/60">
+                    <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold text-gray-800 flex items-center gap-1.5">
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-green-700" />
+                            <span>Formato de Saída</span>
+                        </Label>
+                        <Select 
+                            value={values.outputType || 'pptx'} 
+                            onValueChange={(val: 'pptx' | 'pdf' | 'both') => setValue('outputType', val)}
+                        >
+                            <SelectTrigger className="bg-white text-xs h-9">
+                                <SelectValue placeholder="Selecione o formato" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="pptx">📽️ PowerPoint (.pptx)</SelectItem>
+                                <SelectItem value="pdf">📄 Documento PDF (.pdf)</SelectItem>
+                                <SelectItem value="both">✨ Ambos (.pptx + .pdf)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    {(values.outputType === 'pdf' || values.outputType === 'both') && (
+                        <div className="space-y-1.5">
+                            <Label className="text-xs font-semibold text-gray-800 flex items-center gap-1.5">
+                                <Compass className="w-3.5 h-3.5 text-blue-700" />
+                                <span>Orientação do PDF</span>
+                            </Label>
+                            <Select 
+                                value={values.pdfOrientation || 'portrait'} 
+                                onValueChange={(val: 'portrait' | 'landscape') => setValue('pdfOrientation', val)}
+                            >
+                                <SelectTrigger className="bg-white text-xs h-9">
+                                    <SelectValue placeholder="Selecione a orientação" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="portrait">📱 Retrato (Vertical)</SelectItem>
+                                    <SelectItem value="landscape">💻 Paisagem (Horizontal)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                </div>
+
                 <p className="text-xs text-muted-foreground">
-                    Selecione quais tipos de slides deseja incluir no arquivo PowerPoint gerado:
+                    Selecione quais dados e seções devem ser incluídos na apresentação/relatório:
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
                     <label className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-100 shadow-xs cursor-pointer hover:border-green-300 transition-colors">

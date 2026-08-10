@@ -812,7 +812,7 @@ const generateMatrixSlide = async (pres: PptxGenJS, data: FluencyDetailRow[], _c
     let media = d.media || '';
     if (!media && d.questions && d.questions.size > 0) {
         let correctCount = 0;
-        d.questions.forEach(q => { if (q.correct) correctCount++; });
+        d.questions.forEach((q: any) => { if (q.correct) correctCount++; });
         media = String(Math.round((correctCount / numQuestions) * 100));
     }
     if (media && !media.includes('%')) {
@@ -1127,9 +1127,9 @@ export const generatePresentation = async (
              score = parseInt(m) || 0;
           } else if (student.questions && student.questions.size > 0) {
              let correct = 0;
-             student.questions.forEach(q => { if (q.correct) correct++; });
+             student.questions.forEach((q: any) => { if (q.correct) correct++; });
              let maxQ = 0;
-             if (student.questions) student.questions.forEach((_, k) => maxQ = Math.max(maxQ, k));
+             if (student.questions) student.questions.forEach((_: any, k: number) => maxQ = Math.max(maxQ, k));
              if (maxQ > 0) score = Math.round((correct / maxQ) * 100);
           }
 

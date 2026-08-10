@@ -151,6 +151,8 @@ export interface PresentationConfig {
   title: string;
   margin: number;
   backgroundColor: string;
+  outputType?: 'pptx' | 'pdf' | 'both';
+  pdfOrientation?: 'portrait' | 'landscape';
   includeFluency?: boolean;
   includeLevels?: boolean;
   includeMatrix?: boolean;
@@ -176,6 +178,11 @@ export interface LevelsSummaryRow {
   nao_leitor: number;
   nao_avaliado: number;
   nao_informado: number;
+  materia?: string;
+  nivel?: string;
+  nivelDesempenho?: string;
+  quantidade?: number;
+  percentual?: number;
 }
 
 export interface HistoryStudent {
@@ -190,7 +197,8 @@ export interface FluencyDetailRow {
   materia?: string;
   media?: string;
   nivelNum?: string;
-  questions?: Map<number, { answer: string; correct: boolean }>;
+  percentualAcerto?: number;
+  questions?: any;
 }
 
 export interface ClassData {

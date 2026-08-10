@@ -5,11 +5,14 @@ import { useStore } from '@/store/useStore';
 import { useExternalAuth } from '@/hooks/useExternalAuth';
 import { FileDown, LogIn, RefreshCcw, LayoutDashboard, CheckCircle2 } from 'lucide-react';
 import { openPath } from '@tauri-apps/plugin-opener';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeFile } from '@tauri-apps/plugin-fs';
 import { SaevService } from '@/services/saev';
 import { toast } from 'sonner';
 import { SaevFilterForm, type SaevFilters } from './SaevFilterForm';
 import { generatePresentation } from '@/services/saevReportGenerator';
-import type { ClassData } from '@/types';
+import { generatePdfReport } from '@/services/saevPdfGenerator';
+import type { ClassData, PresentationConfig } from '@/types';
 import { useWorkspacePersistence } from '@/hooks/useWorkspacePersistence';
 import { WorkspaceActions } from '@/components/workspace/WorkspaceActions';
 
@@ -158,27 +161,73 @@ export function ReportsScreen() {
                 });
             }
 
-            // 4. Generate presentation
-            setProgress(95);
-            setCurrentClassName('Montando apresentação...');
-            
-            const filePath = await generatePresentation(allClassesData, {
+            // 4. Generate presentation / PDF based on user selection
+            const outputType = filters.outputType || 'pptx';
+            let finalSavedPath: string | null = null;
+
+            const reportTitle = `Relatorio_SAEV_${new Date().getFullYear()}`;
+            const config: PresentationConfig = {
                 ...filters,
-                title: `Relatorio_SAEV_${new Date().getFullYear()}`,
+                title: reportTitle,
                 margin: 0.5,
                 backgroundColor: 'FFFFFF'
-            });
+            };
+
+            // PPTX Generation
+            if (outputType === 'pptx' || outputType === 'both') {
+                setProgress(92);
+                setCurrentClassName('Montando apresentação PowerPoint...');
+                console.log('[ReportsScreen] Generating PowerPoint (.pptx)...');
+                const pptxPath = await generatePresentation(allClassesData, config);
+                if (pptxPath) finalSavedPath = pptxPath;
+            }
+
+            // PDF Generation
+            if (outputType === 'pdf' || outputType === 'both') {
+                setProgress(96);
+                setCurrentClassName('Montando documento PDF...');
+                console.log(`[ReportsScreen] Generating PDF (.pdf) in ${config.pdfOrientation || 'portrait'} orientation...`);
+                
+                const pdfData = allClassesData.map(c => ({
+                    className: c.name,
+                    datasets: c.csvData
+                }));
+
+                const pdfBytes = await generatePdfReport(pdfData, config);
+
+                try {
+                    const pdfPath = await save({
+                        filters: [{ name: 'Documento PDF', extensions: ['pdf'] }],
+                        defaultPath: `${reportTitle}.pdf`
+                    });
+
+                    if (pdfPath) {
+                        await writeFile(pdfPath, pdfBytes);
+                        console.log(`[ReportsScreen] PDF saved to: ${pdfPath}`);
+                        if (!finalSavedPath) finalSavedPath = pdfPath;
+                    }
+                } catch (err) {
+                    console.error('[ReportsScreen] Error saving PDF:', err);
+                    const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${reportTitle}.pdf`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                }
+            }
             
-            setSavedFilePath(filePath);
+            setSavedFilePath(finalSavedPath);
             setStep('finished');
-            if (filePath) {
-                toast.success("Apresentação gerada e salva com sucesso!");
+            if (finalSavedPath) {
+                toast.success("Relatório gerado e salvo com sucesso!");
             } else {
-                toast.success("Apresentação gerada!");
+                toast.success("Relatório gerado!");
             }
         } catch (error) {
             console.error(error);
-            toast.error("Erro ao gerar a apresentação. O sistema SAEV pode estar instável.");
+            toast.error("Erro ao gerar o relatório. O sistema SAEV pode estar instável.");
             setStep('setup');
         } finally {
             setIsGenerating(false);
