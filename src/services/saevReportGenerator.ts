@@ -123,9 +123,9 @@ const sanitizeText = (text: string | number | undefined | null): string => {
 
 
 
-const generateLevelsSlide = (pres: PptxGenJS, data: LevelsSummaryRow[], _className: string) => {
+const generateLevelsSlide = (pres: PptxGenJS, data: LevelsSummaryRow[], className: string) => {
   const slide = pres.addSlide();
-  slide.addText("Nível de Leitura - Distribuição", { x: 0.5, y: 0.3, fontSize: 18, color: PALETTE.headerText, bold: true });
+  slide.addText(`${className} - Nível de Leitura - Distribuição`, { x: 0.5, y: 0.3, fontSize: 18, color: PALETTE.headerText, bold: true });
 
   // Reverse data for chart so that the first item (Diagnóstica) appears at the top
   const chartDataSrc = [...data].reverse();
@@ -631,12 +631,12 @@ const generateEvolutionLineSlides = (pres: PptxGenJS, data: EvolutionRow[], _cla
   });
 };
 
-const generateEvolutionSlide = (pres: PptxGenJS, data: EvolutionRow[], _className: string) => {
+const generateEvolutionSlide = (pres: PptxGenJS, data: EvolutionRow[], className: string) => {
   if (!data || data.length === 0) return;
 
   const slide = pres.addSlide();
   
-  slide.addText("Visão Geral - Linha Evolutiva", { 
+  slide.addText(`${className} - Visão Geral - Linha Evolutiva`, { 
     x: 0.5, y: 0.3, w: 9, fontSize: 18, color: PALETTE.headerText, bold: true, align: 'left' 
   });
 

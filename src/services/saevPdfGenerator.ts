@@ -119,8 +119,8 @@ export const generatePdfReport = async (
                 // Slide Title (Class Name Centered)
                 doc.setTextColor(PALETTE.headerText[0], PALETTE.headerText[1], PALETTE.headerText[2]);
                 doc.setFont('helvetica', 'bold');
-                doc.setFontSize(32);
-                doc.text(className, pageWidth / 2, 22, { align: 'center' });
+                doc.setFontSize(24);
+                doc.text(`${className} - Nível de Leitura`, pageWidth / 2, 22, { align: 'center' });
 
                 // Calculate counts
                 const counts = { fluente: 0, nao_fluente: 0, frases: 0, palavras: 0, silabas: 0, nao_leitor: 0, nao_avaliado: 0, nao_informado: 0 };
@@ -203,6 +203,11 @@ export const generatePdfReport = async (
                 studentChunks.forEach(chunk => {
                     newSlidePage();
 
+                    doc.setTextColor(PALETTE.headerText[0], PALETTE.headerText[1], PALETTE.headerText[2]);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(14);
+                    doc.text(`${className} - Alunos e Níveis de Leitura`, 10, 12);
+
                     const tableHead = [
                         [
                             `Aluno (${targetStudents.length})`,
@@ -229,7 +234,7 @@ export const generatePdfReport = async (
                     });
 
                     autoTable(doc, {
-                        startY: 12,
+                        startY: 18,
                         head: tableHead,
                         body: tableBody,
                         theme: 'grid',
@@ -267,7 +272,7 @@ export const generatePdfReport = async (
                 doc.setTextColor(PALETTE.headerText[0], PALETTE.headerText[1], PALETTE.headerText[2]);
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(18);
-                doc.text("Nível de Leitura - Distribuição", 14, 18);
+                doc.text(`${className} - Nível de Leitura - Distribuição`, 14, 18);
 
                 // Table
                 const headers = ['Edições', 'Total', 'Fluente', 'Não Fluente', 'Frases', 'Palavras', 'Sílabas', 'Não Leitor', 'Não Aval.', 'Não Inf.'];
@@ -317,7 +322,7 @@ export const generatePdfReport = async (
                 doc.setTextColor(PALETTE.headerText[0], PALETTE.headerText[1], PALETTE.headerText[2]);
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(18);
-                doc.text("Matriz de Respostas dos Alunos", 14, 18);
+                doc.text(`${className} - Matriz de Respostas dos Alunos`, 14, 18);
 
                 let maxQ = 0;
                 nonReadingStudents.forEach(s => {
@@ -392,7 +397,7 @@ export const generatePdfReport = async (
                 doc.setTextColor(PALETTE.headerText[0], PALETTE.headerText[1], PALETTE.headerText[2]);
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(18);
-                doc.text("Visão Geral - Linha Evolutiva", 14, 18);
+                doc.text(`${className} - Visão Geral - Linha Evolutiva`, 14, 18);
 
                 const editions = Array.from(new Set(rows.map(d => d.edicao)));
                 
@@ -477,22 +482,61 @@ export const generatePdfReport = async (
                     doc.text(ed, clusterCenterX, chartBottom + 5, { align: 'center' });
                 });
 
-                // Chart Legend below chart
+                // Chart Legend below chart (Dynamic spacing & wrapping to avoid text overlap)
                 const legendY = chartBottom + 9;
-                const legendItemWidth = orientation === 'landscape' ? 42 : 28;
-                const legendStartX = (pageWidth - barSeries.length * legendItemWidth) / 2;
+                const rectSize = 3;
+                const textGap = 1.5;
+                const itemGap = 4;
+                const maxLineWidth = pageWidth - chartLeft * 2;
 
-                barSeries.forEach((s, idx) => {
-                    const lx = legendStartX + idx * legendItemWidth;
-                    doc.setFillColor(s.color[0], s.color[1], s.color[2]);
-                    doc.rect(lx, legendY, 3, 3, 'F');
-                    doc.setFontSize(6);
-                    doc.setTextColor(70, 70, 70);
-                    doc.text(s.name, lx + 4, legendY + 2.5);
+                doc.setFontSize(6);
+                doc.setFont('helvetica', 'normal');
+
+                interface MeasuredLegendItem {
+                    name: string;
+                    color: number[];
+                    itemWidth: number;
+                }
+
+                const lines: MeasuredLegendItem[][] = [[]];
+                let currentLineWidth = 0;
+
+                barSeries.forEach((s) => {
+                    const textWidth = doc.getTextWidth(s.name);
+                    const itemWidth = rectSize + textGap + textWidth;
+                    const currentLine = lines[lines.length - 1];
+
+                    if (currentLine.length > 0 && (currentLineWidth + itemGap + itemWidth > maxLineWidth)) {
+                        lines.push([{ name: s.name, color: s.color, itemWidth }]);
+                        currentLineWidth = itemWidth;
+                    } else {
+                        currentLine.push({ name: s.name, color: s.color, itemWidth });
+                        currentLineWidth += (currentLine.length > 1 ? itemGap : 0) + itemWidth;
+                    }
+                });
+
+                const lineHeight = 4.5;
+                lines.forEach((lineItems, lineIdx) => {
+                    const lineTotalWidth = lineItems.reduce((sum, item) => sum + item.itemWidth, 0) + (lineItems.length - 1) * itemGap;
+                    let currentX = (pageWidth - lineTotalWidth) / 2;
+                    const currentY = legendY + lineIdx * lineHeight;
+
+                    lineItems.forEach((item) => {
+                        doc.setFillColor(item.color[0], item.color[1], item.color[2]);
+                        doc.rect(currentX, currentY, rectSize, rectSize, 'F');
+
+                        doc.setFontSize(6);
+                        doc.setFont('helvetica', 'normal');
+                        doc.setTextColor(70, 70, 70);
+                        doc.text(item.name, currentX + rectSize + textGap, currentY + 2.3);
+
+                        currentX += item.itemWidth + itemGap;
+                    });
                 });
 
                 // Pivot Table below legend (Matching Image 1)
-                const tableStartY = legendY + 6;
+                const legendTotalHeight = lines.length * lineHeight;
+                const tableStartY = legendY + legendTotalHeight + 2;
 
                 const evoTableHead = [
                     [
@@ -570,7 +614,7 @@ export const generatePdfReport = async (
                         doc.setTextColor(PALETTE.headerText[0], PALETTE.headerText[1], PALETTE.headerText[2]);
                         doc.setFont('helvetica', 'bold');
                         doc.setFontSize(18);
-                        doc.text(`Histórico de Desempenho - ${subj}`, 14, 18);
+                        doc.text(`${className} - Histórico de Desempenho - ${subj}`, 14, 18);
 
                         const headRow = ['Alunos', ...cols.map(c => {
                             const m = c.match(/\[(.*?)\]\s*(.*)/);
