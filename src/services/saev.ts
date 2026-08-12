@@ -31,7 +31,26 @@ export class SaevService implements IExternalAuthService {
   }
 
   private apiBaseUrl = 'https://api.saev.abc.br/v1';
-  private accessToken: string | null = null;
+
+  public get accessToken(): string | null {
+    try {
+      return localStorage.getItem('saev_access_token');
+    } catch {
+      return null;
+    }
+  }
+
+  public set accessToken(token: string | null) {
+    try {
+      if (token) {
+        localStorage.setItem('saev_access_token', token);
+      } else {
+        localStorage.removeItem('saev_access_token');
+      }
+    } catch (e) {
+      console.error('Error setting saev_access_token in localStorage:', e);
+    }
+  }
 
   async login(email: string, pass: string): Promise<boolean> {
     try {

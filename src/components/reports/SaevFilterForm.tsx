@@ -4,9 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Play, BarChart2, PieChart, Grid, TrendingUp, History, SlidersHorizontal, FileSpreadsheet, Compass } from 'lucide-react';
+import { Loader2, Play, BarChart2, PieChart, Grid, TrendingUp, History, SlidersHorizontal, FileSpreadsheet, Compass, LogIn } from 'lucide-react';
 import { useExternalAuth } from '@/hooks/useExternalAuth';
 import { SaevService } from '@/services/saev';
+import { useStore } from '@/store/useStore';
 
 export interface SaevFilters {
     serie: string;
@@ -21,6 +22,7 @@ export interface SaevFilters {
     escola: string;
     escolaLabel?: string;
     turma: string;
+    turmaLabel?: string;
     outputType?: 'pptx' | 'pdf' | 'both';
     pdfOrientation?: 'portrait' | 'landscape';
     includeFluency?: boolean;
@@ -43,6 +45,8 @@ interface SaevFilterFormProps {
     initialFilters?: SaevFilters;
     restoreToken?: number;
     onChange?: (data: SaevFilters) => void;
+    showReportOptions?: boolean;
+    submitButtonLabel?: string;
 }
 
 const DEFAULT_FILTERS: SaevFilters = {
@@ -65,7 +69,15 @@ const DEFAULT_FILTERS: SaevFilters = {
     includeHistory: true,
 };
 
-export function SaevFilterForm({ onSubmit, isLoading, initialFilters, restoreToken = 0, onChange }: SaevFilterFormProps) {
+export function SaevFilterForm({ 
+    onSubmit, 
+    isLoading, 
+    initialFilters, 
+    restoreToken = 0, 
+    onChange,
+    showReportOptions = true,
+    submitButtonLabel = 'Iniciar Geração'
+}: SaevFilterFormProps) {
     const { service } = useExternalAuth('saev');
     const saevService = service as SaevService;
 
@@ -76,8 +88,11 @@ export function SaevFilterForm({ onSubmit, isLoading, initialFilters, restoreTok
     const values = watch();
     const initialFiltersRef = useRef(initialFilters);
     const lastChangeHashRef = useRef('');
+    const lastFetchedKeyRef = useRef<Record<string, string>>({});
     const [options, setOptions] = useState<Record<string, Option[]>>({});
     const [loadingFields, setLoadingFields] = useState<Record<string, boolean>>({});
+
+    const hasToken = !!saevService.accessToken;
 
     useEffect(() => {
         initialFiltersRef.current = initialFilters;
@@ -96,24 +111,38 @@ export function SaevFilterForm({ onSubmit, isLoading, initialFilters, restoreTok
     }, [onChange, values]);
 
     const fetchOptions = async (level: SaevSelectFilter, currentFilters: Partial<SaevFilters>) => {
-        if (loadingFields[level]) return;
+        if (!saevService.accessToken) {
+            console.warn(`[FilterForm] Cannot fetch ${level}: No SAEV access token available`);
+            return;
+        }
+
+        const fetchKey = `${level}_${JSON.stringify(currentFilters)}`;
+        if (lastFetchedKeyRef.current[level] === fetchKey && (options[level]?.length || 0) > 0) {
+            return; // Avoid redundant duplicate fetches
+        }
+        lastFetchedKeyRef.current[level] = fetchKey;
+
         console.log(`[FilterForm] Triggering fetch for ${level}`, currentFilters);
         setLoadingFields(prev => ({ ...prev, [level]: true }));
+        
         try {
-            const opts = await saevService.getFilterOptions(level, currentFilters);
+            const optsPromise = saevService.getFilterOptions(level, currentFilters);
+            const timeoutPromise = new Promise<Option[]>((resolve) =>
+                setTimeout(() => resolve([]), 6000)
+            );
+            const opts = await Promise.race([optsPromise, timeoutPromise]);
+            
             console.log(`[FilterForm] Received ${opts.length} options for ${level}`);
             setOptions(prev => ({ ...prev, [level]: opts }));
             
             if (opts.length > 0) {
                 if (opts.length === 1 && !values[level]) {
-                    console.log(`[FilterForm] Auto-selecting only option for ${level}: ${opts[0].label}`);
+                    console.log(`[FilterForm] Auto-selecting single option for ${level}: ${opts[0].label}`);
                     handleValueChange(level, opts[0].value);
                 } else if (level === 'serie' && !values.serie) {
                     console.log(`[FilterForm] Auto-selecting FIRST option for serie: ${opts[0].label}`);
                     handleValueChange('serie', opts[0].value);
                 }
-            } else {
-                console.warn(`[FilterForm] No options found for ${level}`);
             }
         } catch (error) {
             console.error(`[FilterForm] Failed to fetch options for ${level}`, error);
@@ -133,57 +162,79 @@ export function SaevFilterForm({ onSubmit, isLoading, initialFilters, restoreTok
         if (index !== -1) {
             for (let i = index + 1; i < hierarchy.length; i++) {
                 setValue(hierarchy[i], '');
-                // Also clear options for dependent fields
                 setOptions(prev => ({ ...prev, [hierarchy[i]]: [] }));
+                delete lastFetchedKeyRef.current[hierarchy[i]];
             }
         }
     };
 
-    // Initial load - Start with Serie
+    // Initial load - Start with Serie if authenticated
     useEffect(() => {
-        fetchOptions('serie', {});
-    }, []);
-
-    // Effect-based dependencies following the new order
-    useEffect(() => {
-        if (values.serie) fetchOptions('ano', { serie: values.serie });
-    }, [values.serie]);
-
-    useEffect(() => {
-        if (values.serie && values.ano) fetchOptions('edicao', { serie: values.serie, ano: values.ano });
-    }, [values.serie, values.ano]);
-
-    useEffect(() => {
-        if (values.edicao) fetchOptions('rede', { ...values });
-    }, [values.edicao]);
-
-    useEffect(() => {
-        if (values.rede) fetchOptions('estado', { ...values });
-    }, [values.rede]);
-
-    useEffect(() => {
-        if (values.estado) fetchOptions('regionalEstadual', { ...values });
-    }, [values.estado]);
-
-    useEffect(() => {
-        if (values.regionalEstadual || (values.estado && !loadingFields.regionalEstadual)) {
-            fetchOptions('municipio', { ...values });
+        if (hasToken) {
+            fetchOptions('serie', {});
         }
-    }, [values.regionalEstadual, values.estado]);
+    }, [hasToken]);
+
+    const valSerie = values.serie;
+    const valAno = values.ano;
+    const valEdicao = values.edicao;
+    const valRede = values.rede;
+    const valEstado = values.estado;
+    const valRegionalEstadual = values.regionalEstadual;
+    const valMunicipio = values.municipio;
+    const valRegionalMunicipal = values.regionalMunicipal;
+    const valEscola = values.escola;
 
     useEffect(() => {
-        if (values.municipio) fetchOptions('regionalMunicipal', { ...values });
-    }, [values.municipio]);
+        if (hasToken && valSerie) fetchOptions('ano', { serie: valSerie });
+    }, [hasToken, valSerie]);
 
     useEffect(() => {
-        if (values.regionalMunicipal || (values.municipio && !loadingFields.regionalMunicipal)) {
-            fetchOptions('escola', { ...values });
+        if (hasToken && valSerie && valAno) fetchOptions('edicao', { serie: valSerie, ano: valAno });
+    }, [hasToken, valSerie, valAno]);
+
+    useEffect(() => {
+        if (hasToken && valEdicao) fetchOptions('rede', { serie: valSerie, ano: valAno, edicao: valEdicao });
+    }, [hasToken, valEdicao]);
+
+    useEffect(() => {
+        if (hasToken && valRede) fetchOptions('estado', { serie: valSerie, ano: valAno, edicao: valEdicao, rede: valRede });
+    }, [hasToken, valRede]);
+
+    useEffect(() => {
+        if (hasToken && valEstado) fetchOptions('regionalEstadual', { serie: valSerie, ano: valAno, edicao: valEdicao, rede: valRede, estado: valEstado });
+    }, [hasToken, valEstado]);
+
+    useEffect(() => {
+        if (hasToken && (valRegionalEstadual || valEstado)) {
+            fetchOptions('municipio', { serie: valSerie, ano: valAno, edicao: valEdicao, rede: valRede, estado: valEstado, regionalEstadual: valRegionalEstadual });
         }
-    }, [values.regionalMunicipal, values.municipio]);
+    }, [hasToken, valRegionalEstadual, valEstado]);
 
     useEffect(() => {
-        if (values.escola) fetchOptions('turma', { ...values });
-    }, [values.escola]);
+        if (hasToken && valMunicipio) fetchOptions('regionalMunicipal', { serie: valSerie, ano: valAno, edicao: valEdicao, rede: valRede, estado: valEstado, regionalEstadual: valRegionalEstadual, municipio: valMunicipio });
+    }, [hasToken, valMunicipio]);
+
+    useEffect(() => {
+        if (hasToken && (valRegionalMunicipal || valMunicipio)) {
+            fetchOptions('escola', { serie: valSerie, ano: valAno, edicao: valEdicao, rede: valRede, estado: valEstado, regionalEstadual: valRegionalEstadual, municipio: valMunicipio, regionalMunicipal: valRegionalMunicipal });
+        }
+    }, [hasToken, valRegionalMunicipal, valMunicipio]);
+
+    useEffect(() => {
+        if (hasToken && valEscola) fetchOptions('turma', { serie: valSerie, ano: valAno, edicao: valEdicao, rede: valRede, estado: valEstado, regionalEstadual: valRegionalEstadual, municipio: valMunicipio, regionalMunicipal: valRegionalMunicipal, escola: valEscola });
+    }, [hasToken, valEscola]);
+
+    const isReadyToLoad = (name: SaevSelectFilter) => {
+        if (!hasToken) return false;
+        const hierarchy: SaevSelectFilter[] = [
+            'serie', 'ano', 'edicao', 'rede', 'estado', 'regionalEstadual', 'municipio', 'regionalMunicipal', 'escola', 'turma'
+        ];
+        const index = hierarchy.indexOf(name);
+        if (index === 0) return true;
+        const parent = hierarchy[index - 1];
+        return !!values[parent];
+    };
 
     const renderSelect = (name: SaevSelectFilter, label: string, placeholder: string) => (
         <div className="space-y-2">
@@ -215,19 +266,10 @@ export function SaevFilterForm({ onSubmit, isLoading, initialFilters, restoreTok
         </div>
     );
 
-    const isReadyToLoad = (name: SaevSelectFilter) => {
-        const hierarchy: SaevSelectFilter[] = [
-            'serie', 'ano', 'edicao', 'rede', 'estado', 'regionalEstadual', 'municipio', 'regionalMunicipal', 'escola', 'turma'
-        ];
-        const index = hierarchy.indexOf(name);
-        if (index === 0) return true; // first level
-        const parent = hierarchy[index - 1];
-        return !!values[parent];
-    };
-
     const handleSubmitWithLabels = (data: SaevFilters) => {
         const enrichedData = {
             ...data,
+            turmaLabel: options.turma?.find(o => o.value === data.turma)?.label,
             edicaoLabel: options.edicao?.find(o => o.value === data.edicao)?.label,
             escolaLabel: options.escola?.find(o => o.value === data.escola)?.label,
         };
@@ -236,6 +278,27 @@ export function SaevFilterForm({ onSubmit, isLoading, initialFilters, restoreTok
 
     return (
         <form onSubmit={handleSubmit(handleSubmitWithLabels)} className="space-y-6">
+            {!hasToken && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                        <LogIn className="w-5 h-5 text-amber-600 shrink-0" />
+                        <div className="text-xs">
+                            <p className="font-semibold text-sm">Sessão do SAEV Desconectada</p>
+                            <p className="text-amber-700">Faça login no SAEV para carregar automaticamente os filtros de Série, Ano, Escola e Turma.</p>
+                        </div>
+                    </div>
+                    <Button 
+                        type="button" 
+                        size="sm" 
+                        onClick={() => useStore.getState().setSaevLoginOpen(true)}
+                        className="bg-green-700 hover:bg-green-800 text-white text-xs gap-1.5"
+                    >
+                        <LogIn className="w-3.5 h-3.5" />
+                        Fazer Login no SAEV
+                    </Button>
+                </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {renderSelect('serie', 'Série', 'Selecione a Série')}
                 {renderSelect('ano', 'Ano', 'Selecione o Ano')}
@@ -253,164 +316,166 @@ export function SaevFilterForm({ onSubmit, isLoading, initialFilters, restoreTok
                 </div>
             </div>
 
-            {/* Report Format & Slide Customization Section */}
-            <div className="rounded-xl border border-green-100 bg-green-50/40 p-5 space-y-4">
-                <div className="flex items-center gap-2 text-green-900 font-semibold text-base">
-                    <SlidersHorizontal className="w-5 h-5 text-green-700" />
-                    <span>Configuração do Relatório & Conteúdo</span>
-                </div>
-
-                {/* Output Format & PDF Orientation Selectors */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-2 border-b border-green-200/60">
-                    <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold text-gray-800 flex items-center gap-1.5">
-                            <FileSpreadsheet className="w-3.5 h-3.5 text-green-700" />
-                            <span>Formato de Saída</span>
-                        </Label>
-                        <Select 
-                            value={values.outputType || 'pptx'} 
-                            onValueChange={(val: 'pptx' | 'pdf' | 'both') => setValue('outputType', val)}
-                        >
-                            <SelectTrigger className="bg-white text-xs h-9">
-                                <SelectValue placeholder="Selecione o formato" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="pptx">📽️ PowerPoint (.pptx)</SelectItem>
-                                <SelectItem value="pdf">📄 Documento PDF (.pdf)</SelectItem>
-                                <SelectItem value="both">✨ Ambos (.pptx + .pdf)</SelectItem>
-                            </SelectContent>
-                        </Select>
+            {/* Report Format & Slide Customization Section (Shown only for presentation reports) */}
+            {showReportOptions && (
+                <div className="rounded-xl border border-green-100 bg-green-50/40 p-5 space-y-4">
+                    <div className="flex items-center gap-2 text-green-900 font-semibold text-base">
+                        <SlidersHorizontal className="w-5 h-5 text-green-700" />
+                        <span>Configuração do Relatório & Conteúdo</span>
                     </div>
 
-                    {(values.outputType === 'pdf' || values.outputType === 'both') && (
+                    {/* Output Format & PDF Orientation Selectors */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-2 border-b border-green-200/60">
                         <div className="space-y-1.5">
                             <Label className="text-xs font-semibold text-gray-800 flex items-center gap-1.5">
-                                <Compass className="w-3.5 h-3.5 text-blue-700" />
-                                <span>Orientação do PDF</span>
+                                <FileSpreadsheet className="w-3.5 h-3.5 text-green-700" />
+                                <span>Formato de Saída</span>
                             </Label>
                             <Select 
-                                value={values.pdfOrientation || 'portrait'} 
-                                onValueChange={(val: 'portrait' | 'landscape') => setValue('pdfOrientation', val)}
+                                value={values.outputType || 'pptx'} 
+                                onValueChange={(val: 'pptx' | 'pdf' | 'both') => setValue('outputType', val)}
                             >
                                 <SelectTrigger className="bg-white text-xs h-9">
-                                    <SelectValue placeholder="Selecione a orientação" />
+                                    <SelectValue placeholder="Selecione o formato" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="portrait">📱 Retrato (Vertical)</SelectItem>
-                                    <SelectItem value="landscape">💻 Paisagem (Horizontal)</SelectItem>
+                                    <SelectItem value="pptx">📽️ PowerPoint (.pptx)</SelectItem>
+                                    <SelectItem value="pdf">📄 Documento PDF (.pdf)</SelectItem>
+                                    <SelectItem value="both">✨ Ambos (.pptx + .pdf)</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
-                    )}
+
+                        {(values.outputType === 'pdf' || values.outputType === 'both') && (
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-gray-800 flex items-center gap-1.5">
+                                    <Compass className="w-3.5 h-3.5 text-blue-700" />
+                                    <span>Orientação do PDF</span>
+                                </Label>
+                                <Select 
+                                    value={values.pdfOrientation || 'portrait'} 
+                                    onValueChange={(val: 'portrait' | 'landscape') => setValue('pdfOrientation', val)}
+                                >
+                                    <SelectTrigger className="bg-white text-xs h-9">
+                                        <SelectValue placeholder="Selecione a orientação" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="portrait">📱 Retrato (Vertical)</SelectItem>
+                                        <SelectItem value="landscape">💻 Paisagem (Horizontal)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                        Selecione quais dados e seções devem ser incluídos na apresentação/relatório:
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
+                        <label className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-100 shadow-xs cursor-pointer hover:border-green-300 transition-colors">
+                            <Checkbox
+                                checked={values.includeFluency !== false}
+                                onCheckedChange={(checked) => setValue('includeFluency', !!checked)}
+                                className="mt-0.5"
+                            />
+                            <div className="space-y-0.5">
+                                <div className="flex items-center gap-1.5 font-medium text-xs text-gray-900">
+                                    <BarChart2 className="w-3.5 h-3.5 text-green-600" />
+                                    <span>Fluência Leitora</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground leading-tight">
+                                    Gráfico e tabela com contagem de alunos por nível de leitura
+                                </p>
+                            </div>
+                        </label>
+
+                        <label className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-100 shadow-xs cursor-pointer hover:border-green-300 transition-colors">
+                            <Checkbox
+                                checked={values.includeLevels !== false}
+                                onCheckedChange={(checked) => setValue('includeLevels', !!checked)}
+                                className="mt-0.5"
+                            />
+                            <div className="space-y-0.5">
+                                <div className="flex items-center gap-1.5 font-medium text-xs text-gray-900">
+                                    <PieChart className="w-3.5 h-3.5 text-blue-600" />
+                                    <span>Distribuição de Nível</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground leading-tight">
+                                    Gráfico empilhado da evolução do percentual de leitura
+                                </p>
+                            </div>
+                        </label>
+
+                        <label className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-100 shadow-xs cursor-pointer hover:border-green-300 transition-colors">
+                            <Checkbox
+                                checked={values.includeMatrix !== false}
+                                onCheckedChange={(checked) => setValue('includeMatrix', !!checked)}
+                                className="mt-0.5"
+                            />
+                            <div className="space-y-0.5">
+                                <div className="flex items-center gap-1.5 font-medium text-xs text-gray-900">
+                                    <Grid className="w-3.5 h-3.5 text-purple-600" />
+                                    <span>Matriz de Respostas</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground leading-tight">
+                                    Detalhamento de respostas por aluno e por questão
+                                </p>
+                            </div>
+                        </label>
+
+                        <label className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-100 shadow-xs cursor-pointer hover:border-green-300 transition-colors">
+                            <Checkbox
+                                checked={values.includeEvolution !== false}
+                                onCheckedChange={(checked) => setValue('includeEvolution', !!checked)}
+                                className="mt-0.5"
+                            />
+                            <div className="space-y-0.5">
+                                <div className="flex items-center gap-1.5 font-medium text-xs text-gray-900">
+                                    <TrendingUp className="w-3.5 h-3.5 text-orange-600" />
+                                    <span>Linha Evolutiva</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground leading-tight">
+                                    Gráfico comparativo de participação e acertos entre edições
+                                </p>
+                            </div>
+                        </label>
+
+                        <label className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-100 shadow-xs cursor-pointer hover:border-green-300 transition-colors">
+                            <Checkbox
+                                checked={values.includeHistory !== false}
+                                onCheckedChange={(checked) => setValue('includeHistory', !!checked)}
+                                className="mt-0.5"
+                            />
+                            <div className="space-y-0.5">
+                                <div className="flex items-center gap-1.5 font-medium text-xs text-gray-900">
+                                    <History className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>Histórico de Desempenho</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground leading-tight">
+                                    Tabela histórica detalhada com avaliações anteriores
+                                </p>
+                            </div>
+                        </label>
+                    </div>
                 </div>
+            )}
 
-                <p className="text-xs text-muted-foreground">
-                    Selecione quais dados e seções devem ser incluídos na apresentação/relatório:
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
-                    <label className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-100 shadow-xs cursor-pointer hover:border-green-300 transition-colors">
-                        <Checkbox
-                            checked={values.includeFluency !== false}
-                            onCheckedChange={(checked) => setValue('includeFluency', !!checked)}
-                            className="mt-0.5"
-                        />
-                        <div className="space-y-0.5">
-                            <div className="flex items-center gap-1.5 font-medium text-xs text-gray-900">
-                                <BarChart2 className="w-3.5 h-3.5 text-green-600" />
-                                <span>Fluência Leitora</span>
-                            </div>
-                            <p className="text-[11px] text-muted-foreground leading-tight">
-                                Gráfico e tabela com contagem de alunos por nível de leitura
-                            </p>
-                        </div>
-                    </label>
-
-                    <label className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-100 shadow-xs cursor-pointer hover:border-green-300 transition-colors">
-                        <Checkbox
-                            checked={values.includeLevels !== false}
-                            onCheckedChange={(checked) => setValue('includeLevels', !!checked)}
-                            className="mt-0.5"
-                        />
-                        <div className="space-y-0.5">
-                            <div className="flex items-center gap-1.5 font-medium text-xs text-gray-900">
-                                <PieChart className="w-3.5 h-3.5 text-blue-600" />
-                                <span>Distribuição de Nível</span>
-                            </div>
-                            <p className="text-[11px] text-muted-foreground leading-tight">
-                                Gráfico empilhado da evolução do percentual de leitura
-                            </p>
-                        </div>
-                    </label>
-
-                    <label className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-100 shadow-xs cursor-pointer hover:border-green-300 transition-colors">
-                        <Checkbox
-                            checked={values.includeMatrix !== false}
-                            onCheckedChange={(checked) => setValue('includeMatrix', !!checked)}
-                            className="mt-0.5"
-                        />
-                        <div className="space-y-0.5">
-                            <div className="flex items-center gap-1.5 font-medium text-xs text-gray-900">
-                                <Grid className="w-3.5 h-3.5 text-purple-600" />
-                                <span>Matriz de Respostas</span>
-                            </div>
-                            <p className="text-[11px] text-muted-foreground leading-tight">
-                                Detalhamento de respostas por aluno e por questão
-                            </p>
-                        </div>
-                    </label>
-
-                    <label className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-100 shadow-xs cursor-pointer hover:border-green-300 transition-colors">
-                        <Checkbox
-                            checked={values.includeEvolution !== false}
-                            onCheckedChange={(checked) => setValue('includeEvolution', !!checked)}
-                            className="mt-0.5"
-                        />
-                        <div className="space-y-0.5">
-                            <div className="flex items-center gap-1.5 font-medium text-xs text-gray-900">
-                                <TrendingUp className="w-3.5 h-3.5 text-orange-600" />
-                                <span>Linha Evolutiva</span>
-                            </div>
-                            <p className="text-[11px] text-muted-foreground leading-tight">
-                                Gráfico comparativo de participação e acertos entre edições
-                            </p>
-                        </div>
-                    </label>
-
-                    <label className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-100 shadow-xs cursor-pointer hover:border-green-300 transition-colors">
-                        <Checkbox
-                            checked={values.includeHistory !== false}
-                            onCheckedChange={(checked) => setValue('includeHistory', !!checked)}
-                            className="mt-0.5"
-                        />
-                        <div className="space-y-0.5">
-                            <div className="flex items-center gap-1.5 font-medium text-xs text-gray-900">
-                                <History className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>Histórico de Desempenho</span>
-                            </div>
-                            <p className="text-[11px] text-muted-foreground leading-tight">
-                                Tabela histórica detalhada com avaliações anteriores
-                            </p>
-                        </div>
-                    </label>
-                </div>
-            </div>
-
-            <div className="pt-4 flex justify-end">
+            <div className="pt-2 flex justify-end">
                 <Button 
                     type="submit" 
                     size="lg" 
-                    disabled={isLoading || !values.turma} 
-                    className="bg-green-700 hover:bg-green-800 gap-2 min-w-50"
+                    disabled={isLoading || (!values.turma && !values.escola && !values.serie)} 
+                    className="bg-green-700 hover:bg-green-800 gap-2 min-w-50 shadow-md"
                 >
                     {isLoading ? (
                         <>
                             <Loader2 className="w-5 h-5 animate-spin" />
-                            Processando...
+                            Buscando Dados...
                         </>
                     ) : (
                         <>
                             <Play className="w-5 h-5" />
-                            Iniciar Geração
+                            {submitButtonLabel}
                         </>
                     )}
                 </Button>

@@ -9,6 +9,7 @@ import { ScheduleView } from "@/components/schedule/ScheduleView";
 import { AttendanceSheet } from "@/components/attendance/AttendanceSheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; // Keep for sub-tabs if needed
 import { ReportsScreen } from '@/components/reports/ReportsScreen';
+import { CertificatesControl } from '@/components/certificates/CertificatesControl';
 import { Toaster } from "@/components/ui/sonner";
 
 import { ThemeProvider } from "@/components/theme-provider";
@@ -92,10 +93,12 @@ function App() {
         
         {activeTab === 'reports' && <ReportsScreen />}
         
+        {activeTab === 'certificates' && <CertificatesControl />}
+        
         <Toaster />
       </DashboardLayout>
     </ThemeProvider>
-  )
+  );
 }
 
 export default App

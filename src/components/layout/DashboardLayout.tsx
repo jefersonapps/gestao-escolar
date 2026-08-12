@@ -12,7 +12,8 @@ import {
     Search,
     TableProperties,
     BarChart3,
-    AlertTriangle
+    AlertTriangle,
+    Award
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -55,6 +56,7 @@ const sidebarItems = [
   { id: 'tables', label: 'Tabelas', icon: TableProperties },
   { id: 'charts', label: 'Gráficos', icon: BarChart3 },
   { id: 'reports', label: 'Relatórios', icon: clipboardListIcon },
+  { id: 'certificates', label: 'Certificados', icon: Award },
 ];
 
 export function DashboardLayout({ children, activeTab, onTabChange }: DashboardLayoutProps) {

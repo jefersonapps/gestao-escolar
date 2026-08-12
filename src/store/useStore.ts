@@ -168,9 +168,14 @@ export const useStore = create<AppState>()(
           externalSessions: { ...state.externalSessions, [system]: user } 
       })),
       setScheduleViewState: (viewState) => set({ scheduleViewState: viewState }),
-      logoutExternalSystem: (system) => set((state) => ({ 
-          externalSessions: { ...state.externalSessions, [system]: null } 
-      })),
+      logoutExternalSystem: (system) => set((state) => {
+          if (system === 'saev') {
+              try { localStorage.removeItem('saev_access_token'); } catch {}
+          }
+          return {
+              externalSessions: { ...state.externalSessions, [system]: null }
+          };
+      }),
       
       updateClassStudents: (classId, students) => set((state) => ({
         classes: state.classes.map(c => 
