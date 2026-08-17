@@ -18,23 +18,113 @@ import { toast } from 'sonner';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
 import { openPath } from '@tauri-apps/plugin-opener';
-import { 
-  Award, 
-  Upload, 
-  Sparkles, 
-  Users, 
-  FileDown, 
-  Search, 
-  Trophy, 
-  BookOpen, 
+import {
+  Award,
+  Upload,
+  Sparkles,
+  Users,
+  FileDown,
+  Search,
+  Trophy,
+  BookOpen,
   CheckCircle2,
   RefreshCw,
   Info,
   FolderOpen,
-  School
+  School,
+  Image
 } from 'lucide-react';
 
+// Helper: Load image from URL and convert to base64 data URL
+const loadImageAsBase64 = (url: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('Canvas context unavailable')); return; }
+      ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => reject(new Error('Falha ao carregar imagem do modelo'));
+    img.src = url;
+  });
+};
+
 // Built-in Default Templates
+const createCertificadoPadraoTemplate = (bgImage: string): CertificateTemplate => ({
+  id: 'template_certificado_padrao',
+  name: 'Certificado de Reconhecimento',
+  orientation: 'landscape',
+  bgImage,
+  customText: 'Parabenizamos pelo excelente desempenho e dedicação demonstrados nas avaliações.',
+  fields: [
+    {
+      id: 'f_student',
+      name: 'Nome do Aluno',
+      placeholderKey: '{nome_aluno}',
+      xPercent: 23,
+      yPercent: 60,
+      widthPercent: 63.6,
+      heightPercent: 6,
+      text: '{nome_aluno}',
+      fontSize: 20,
+      fontFamily: 'times',
+      fontWeight: 'bold',
+      color: '#1a365d',
+      align: 'left',
+    },
+    {
+      id: 'f_avaliacao',
+      name: 'Avaliação',
+      placeholderKey: '{avaliacao}',
+      xPercent: 23,
+      yPercent: 66,
+      widthPercent: 63.6,
+      heightPercent: 6,
+      text: '{avaliacao}',
+      fontSize: 20,
+      fontFamily: 'times',
+      fontWeight: 'bold',
+      color: '#1a365d',
+      align: 'left',
+    },
+    {
+      id: 'f_resultado',
+      name: 'Resultado Alcançado',
+      placeholderKey: '{colocacao}',
+      xPercent: 32,
+      yPercent: 72,
+      widthPercent: 54,
+      heightPercent: 6,
+      text: '{colocacao} — Português: {nota_portugues} — Matemática: {nota_matematica}',
+      fontSize: 18,
+      fontFamily: 'times',
+      fontWeight: 'bold',
+      color: '#92400e',
+      align: 'left',
+    },
+    {
+      id: 'f_date',
+      name: 'Data',
+      placeholderKey: '{data}',
+      xPercent: 20,
+      yPercent: 79,
+      widthPercent: 20,
+      heightPercent: 5,
+      text: '{data}',
+      fontSize: 20,
+      fontFamily: 'times',
+      fontWeight: 'bold',
+      color: '#1a365d',
+      align: 'left',
+    },
+  ],
+});
+
 const createGoldTemplate = (): CertificateTemplate => ({
   id: 'template_gold',
   name: 'Tradicional Dourado',
@@ -146,6 +236,23 @@ export function CertificatesControl() {
 
   // State: Template & Canvas
   const [template, setTemplate] = useState<CertificateTemplate>(createGoldTemplate());
+  const [isLoadingPreset, setIsLoadingPreset] = useState(false);
+
+  // Handler: Select the Certificado Padrão preset
+  const handleSelectCertificadoPadrao = async () => {
+    setIsLoadingPreset(true);
+    try {
+      const base64 = await loadImageAsBase64('/images/certificado_padrao.png');
+      setTemplate(createCertificadoPadraoTemplate(base64));
+      setActiveStep('canvas');
+      toast.success('Modelo "Certificado de Reconhecimento" carregado! Avancei para o passo 2.');
+    } catch (err: any) {
+      console.error('Error loading preset image:', err);
+      toast.error('Erro ao carregar imagem do modelo padrão: ' + (err.message || String(err)));
+    } finally {
+      setIsLoadingPreset(false);
+    }
+  };
 
   // State: Student Data Source
   const [sourceType, setSourceType] = useState<'saev' | 'local' | 'manual'>('saev');
@@ -493,11 +600,11 @@ export function CertificatesControl() {
       if (rank <= 5) top5++;
     });
 
-    return { 
+    return {
       all: dynamicallyRankedStudents.length,
-      top1, 
-      top3, 
-      top5 
+      top1,
+      top3,
+      top5
     };
   }, [dynamicallyRankedStudents]);
 
@@ -653,17 +760,48 @@ export function CertificatesControl() {
               <div className="space-y-3">
                 <Label className="text-sm font-semibold">Ou Selecione um Modelo Pré-desenhado:</Label>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Preset 1: Certificado de Reconhecimento (imagem padrão) */}
+                  <div
+                    onClick={handleSelectCertificadoPadrao}
+                    className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${template.id === 'template_certificado_padrao'
+                      ? 'border-blue-600 bg-blue-50/50 shadow-md ring-2 ring-blue-500/20'
+                      : 'hover:border-blue-300 bg-card'
+                      } ${isLoadingPreset ? 'opacity-60 pointer-events-none' : ''}`}
+                  >
+                    <div className="h-28 rounded-md border-2 border-blue-700/30 bg-slate-50 flex items-center justify-center p-1 mb-3 overflow-hidden">
+                      <img
+                        src="/images/certificado_padrao.png"
+                        alt="Certificado de Reconhecimento"
+                        className="h-full w-full object-contain rounded"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Image className="w-3.5 h-3.5 text-blue-700" />
+                        <span className="font-semibold text-xs">Certificado de Reconhecimento</span>
+                      </div>
+                      {template.id === 'template_certificado_padrao' && (
+                        <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                      )}
+                    </div>
+                    {isLoadingPreset && (
+                      <div className="text-[10px] text-blue-600 mt-1.5 flex items-center gap-1">
+                        <RefreshCw className="w-3 h-3 animate-spin" /> Carregando modelo...
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Preset 2: Modelo Dourado Tradicional */}
                   <div
                     onClick={() => {
                       setTemplate(createGoldTemplate());
                       setActiveStep('canvas');
                       toast.success('Modelo selecionado! Avancei para o passo 2 para desenhar as caixas de texto.');
                     }}
-                    className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
-                      template.id === 'template_gold' && !template.bgImage
-                        ? 'border-amber-500 bg-amber-50/50 shadow-md ring-2 ring-amber-500/20'
-                        : 'hover:border-amber-300 bg-card'
-                    }`}
+                    className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${template.id === 'template_gold' && !template.bgImage
+                      ? 'border-amber-500 bg-amber-50/50 shadow-md ring-2 ring-amber-500/20'
+                      : 'hover:border-amber-300 bg-card'
+                      }`}
                   >
                     <div className="h-28 rounded-md border-2 border-amber-600/30 bg-slate-50 flex flex-col items-center justify-center p-2 mb-3 text-center">
                       <div className="text-amber-800 font-serif text-xs font-bold">CERTIFICADO DOURADO</div>
@@ -722,11 +860,10 @@ export function CertificatesControl() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div
                   onClick={() => setSourceType('saev')}
-                  className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
-                    sourceType === 'saev'
-                      ? 'border-amber-500 bg-amber-50/50 shadow-md ring-2 ring-amber-500/20'
-                      : 'hover:border-amber-300 bg-card'
-                  }`}
+                  className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${sourceType === 'saev'
+                    ? 'border-amber-500 bg-amber-50/50 shadow-md ring-2 ring-amber-500/20'
+                    : 'hover:border-amber-300 bg-card'
+                    }`}
                 >
                   <div className="flex items-center gap-2 font-bold text-sm text-amber-800 mb-1">
                     <Trophy className="w-4 h-4 text-amber-600" />
@@ -739,11 +876,10 @@ export function CertificatesControl() {
 
                 <div
                   onClick={() => setSourceType('local')}
-                  className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
-                    sourceType === 'local'
-                      ? 'border-amber-500 bg-amber-50/50 shadow-md ring-2 ring-amber-500/20'
-                      : 'hover:border-amber-300 bg-card'
-                  }`}
+                  className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${sourceType === 'local'
+                    ? 'border-amber-500 bg-amber-50/50 shadow-md ring-2 ring-amber-500/20'
+                    : 'hover:border-amber-300 bg-card'
+                    }`}
                 >
                   <div className="flex items-center gap-2 font-bold text-sm text-slate-800 mb-1">
                     <BookOpen className="w-4 h-4 text-primary" />
@@ -756,11 +892,10 @@ export function CertificatesControl() {
 
                 <div
                   onClick={() => setSourceType('manual')}
-                  className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
-                    sourceType === 'manual'
-                      ? 'border-amber-500 bg-amber-50/50 shadow-md ring-2 ring-amber-500/20'
-                      : 'hover:border-amber-300 bg-card'
-                  }`}
+                  className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${sourceType === 'manual'
+                    ? 'border-amber-500 bg-amber-50/50 shadow-md ring-2 ring-amber-500/20'
+                    : 'hover:border-amber-300 bg-card'
+                    }`}
                 >
                   <div className="flex items-center gap-2 font-bold text-sm text-slate-800 mb-1">
                     <Sparkles className="w-4 h-4 text-indigo-600" />
@@ -812,11 +947,10 @@ export function CertificatesControl() {
                         type="button"
                         variant={saevSearchScope === 'school' ? 'default' : 'outline'}
                         onClick={() => setSaevSearchScope('school')}
-                        className={`h-auto py-3 px-4 flex items-start gap-3 text-left justify-start transition-all ${
-                          saevSearchScope === 'school'
-                            ? 'bg-green-700 hover:bg-green-800 text-white shadow-md ring-2 ring-green-600/30'
-                            : 'bg-white hover:bg-green-50 border-green-200 text-green-950'
-                        }`}
+                        className={`h-auto py-3 px-4 flex items-start gap-3 text-left justify-start transition-all ${saevSearchScope === 'school'
+                          ? 'bg-green-700 hover:bg-green-800 text-white shadow-md ring-2 ring-green-600/30'
+                          : 'bg-white hover:bg-green-50 border-green-200 text-green-950'
+                          }`}
                       >
                         <School className={`w-5 h-5 shrink-0 mt-0.5 ${saevSearchScope === 'school' ? 'text-amber-300' : 'text-green-700'}`} />
                         <div>
@@ -831,11 +965,10 @@ export function CertificatesControl() {
                         type="button"
                         variant={saevSearchScope === 'class' ? 'default' : 'outline'}
                         onClick={() => setSaevSearchScope('class')}
-                        className={`h-auto py-3 px-4 flex items-start gap-3 text-left justify-start transition-all ${
-                          saevSearchScope === 'class'
-                            ? 'bg-green-700 hover:bg-green-800 text-white shadow-md ring-2 ring-green-600/30'
-                            : 'bg-white hover:bg-green-50 border-green-200 text-green-950'
-                        }`}
+                        className={`h-auto py-3 px-4 flex items-start gap-3 text-left justify-start transition-all ${saevSearchScope === 'class'
+                          ? 'bg-green-700 hover:bg-green-800 text-white shadow-md ring-2 ring-green-600/30'
+                          : 'bg-white hover:bg-green-50 border-green-200 text-green-950'
+                          }`}
                       >
                         <Users className={`w-5 h-5 shrink-0 mt-0.5 ${saevSearchScope === 'class' ? 'text-amber-300' : 'text-green-700'}`} />
                         <div>
@@ -1016,10 +1149,10 @@ export function CertificatesControl() {
                               {st.nota_portugues !== '-' && st.nota_matematica !== '-'
                                 ? `Port: ${st.nota_portugues} | Mat: ${st.nota_matematica}`
                                 : st.nota_portugues !== '-'
-                                ? `Port: ${st.nota_portugues}`
-                                : st.nota_matematica !== '-'
-                                ? `Mat: ${st.nota_matematica}`
-                                : (st.rawScore ? `${st.rawScore}%` : '-')}
+                                  ? `Port: ${st.nota_portugues}`
+                                  : st.nota_matematica !== '-'
+                                    ? `Mat: ${st.nota_matematica}`
+                                    : (st.rawScore ? `${st.rawScore}%` : '-')}
                             </td>
                             <td className="p-2.5 text-slate-600">{st.nivel_leitura || '-'}</td>
                           </tr>
