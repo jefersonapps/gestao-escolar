@@ -9,6 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { StudentDetailsDialog } from '@/components/StudentDetailsDialog';
 import { toast } from 'sonner';
+import { useExternalAuth } from '@/hooks/useExternalAuth';
+import { SGEduService } from '@/services/sgedu';
+import { generateInconsistenciesPdf } from '@/services/inconsistencyPdfGenerator';
+import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
   AlertCircle,
@@ -17,11 +21,13 @@ import {
   Search,
   Filter,
   FileSpreadsheet,
+  FileDown,
   Edit,
   ShieldAlert,
   HelpCircle,
   Sparkles,
-  Users
+  Users,
+  RefreshCw
 } from 'lucide-react';
 
 export type InconsistencySeverity = 'critical' | 'high' | 'medium' | 'low';
@@ -81,18 +87,24 @@ const RULE_LABELS: Record<string, string> = {
   missing_birthdate: 'Sem Data de Nascimento',
   missing_mother: 'Sem Mãe / Responsável',
   missing_stage: 'Sem Sub-turma (Multiseriada)',
-  missing_nis_sus: 'Sem NIS / Cartão SUS',
+  missing_nis: 'Sem NIS',
+  missing_sus: 'Sem Cartão SUS',
   duplicate_student: 'Cadastro Duplicado',
 };
 
 export function InconsistencyControl() {
   const classGroups = useStore((state) => state.classes) || [];
   const updateClassStudents = useStore((state) => state.updateClassStudents);
+  const { requireSession, service } = useExternalAuth('sgedu');
+  const sgeService = service as SGEduService;
 
   const [selectedClassId, setSelectedClassId] = useState<string>('all');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [selectedRule, setSelectedRule] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // SGEdu refreshing state
+  const [refreshingStudentId, setRefreshingStudentId] = useState<string | null>(null);
 
   // Editing dialog state
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -198,15 +210,26 @@ export function InconsistencyControl() {
           });
         }
 
-        // Check 5: Missing NIS / Cartão SUS
-        const hasNis = st.nis && st.nis.trim().length > 0;
-        const hasSus = st.sus && st.sus.trim().length > 0;
-        if (!hasNis && !hasSus) {
+        // Check 5: Missing NIS
+        const hasNis = !!(st.nis && st.nis.trim().length > 0);
+        if (!hasNis) {
           issues.push({
-            id: `${st.id}-missing_nis_sus`,
-            ruleKey: 'missing_nis_sus',
-            title: 'NIS / Cartão SUS pendente',
-            description: 'Campos de NIS e Cartão SUS encontram-se em branco.',
+            id: `${st.id}-missing_nis`,
+            ruleKey: 'missing_nis',
+            title: 'NIS não cadastrado',
+            description: 'O número de NIS do aluno está em branco.',
+            severity: 'low',
+          });
+        }
+
+        // Check 5.1: Missing Cartão SUS
+        const hasSus = !!(st.sus && st.sus.trim().length > 0);
+        if (!hasSus) {
+          issues.push({
+            id: `${st.id}-missing_sus`,
+            ruleKey: 'missing_sus',
+            title: 'Cartão SUS pendente',
+            description: 'O número do Cartão SUS do aluno está em branco.',
             severity: 'low',
           });
         }
@@ -334,6 +357,96 @@ export function InconsistencyControl() {
     setEditingClassGroup(null);
   };
 
+  // Fetch updated student data directly from SGEdu
+  const handleRefreshStudent = async (student: Student, classGroup: ClassGroup) => {
+    if (!student || !classGroup) return;
+    if (!(await requireSession())) return;
+
+    setRefreshingStudentId(student.id);
+    try {
+      const details = await sgeService.getStudentDetails(student.id);
+      if (details) {
+        let updatedStudent: Student = { ...student, ...details };
+
+        // Persist update in classGroup
+        const currentStudents = Array.isArray(classGroup.students) ? classGroup.students : [];
+        const newStudents = currentStudents.map((s) => (s.id === updatedStudent.id ? updatedStudent : s));
+        updateClassStudents(classGroup.id, newStudents);
+
+        // If editing this student in dialog, also update dialog state
+        if (editingStudent && editingStudent.id === updatedStudent.id) {
+          setEditingStudent(updatedStudent);
+        }
+
+        toast.success(`Dados de "${student.name}" atualizados no SGEdu!`);
+
+        // Fetch photo in background if needed
+        if (updatedStudent.photoUrl && !updatedStudent.photoUrl.startsWith('data:')) {
+          sgeService.getStudentPhoto(updatedStudent.photoUrl).then((base64: string | null) => {
+            if (base64) {
+              const withPhoto = { ...updatedStudent, photoUrl: base64 };
+              const currentStudentsLatest = Array.isArray(classGroup.students) ? classGroup.students : [];
+              const studentsWithPhoto = currentStudentsLatest.map((s) => (s.id === withPhoto.id ? withPhoto : s));
+              updateClassStudents(classGroup.id, studentsWithPhoto);
+              if (editingStudent && editingStudent.id === withPhoto.id) {
+                setEditingStudent(withPhoto);
+              }
+            }
+          });
+        }
+      } else {
+        toast.error(`Não foi possível obter os dados de "${student.name}" no SGEdu.`);
+      }
+    } catch (err: any) {
+      console.error('Error refreshing student from SGEdu:', err);
+      toast.error('Erro ao conectar com SGEdu: ' + (err.message || String(err)));
+    } finally {
+      setRefreshingStudentId(null);
+    }
+  };
+
+  // PDF Export
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  const handleExportPdf = async () => {
+    if (filteredAuditResults.length === 0) {
+      toast.error('Nenhuma inconsistência filtrada para exportar no PDF.');
+      return;
+    }
+
+    setIsGeneratingPdf(true);
+    try {
+      const selectedClassName =
+        selectedClassId === 'all'
+          ? 'Todas as Turmas'
+          : safeClassesList.find((c) => c.id === selectedClassId)?.name || 'Turma Selecionada';
+      const selectedSevName =
+        selectedSeverity === 'all' ? 'Todas as Severidades' : SEVERITY_CONFIG[selectedSeverity as InconsistencySeverity]?.label || selectedSeverity;
+      const selectedRuleName = selectedRule === 'all' ? 'Todos os Tipos' : RULE_LABELS[selectedRule] || selectedRule;
+
+      const filtersDescription = `Turma: ${selectedClassName} | Gravidade: ${selectedSevName} | Tipo: ${selectedRuleName}`;
+
+      await generateInconsistenciesPdf({
+        items: filteredAuditResults,
+        stats: {
+          totalStudents: stats.totalStudents,
+          inconsistenciesCount: stats.flaggedCount,
+          cleanCount: stats.cleanCount,
+          criticalCount: stats.criticalCount,
+          highCount: stats.highCount,
+          mediumCount: stats.mediumCount,
+          lowCount: stats.lowCount,
+        },
+        filtersDescription,
+      });
+    } catch (err: any) {
+      console.error('Error exporting inconsistency PDF:', err);
+      toast.error('Erro ao gerar relatório PDF: ' + (err.message || String(err)));
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   // CSV Export
   const handleExportCsv = () => {
     if (filteredAuditResults.length === 0) {
@@ -341,15 +454,17 @@ export function InconsistencyControl() {
       return;
     }
 
-    const headers = ['Turma', 'Sub-turma/Etapa', 'ID Aluno', 'Nome do Aluno', 'CPF', 'Severidade Máxima', 'Inconsistências Encontradas'];
+    const headers = ['Turma', 'Sub-turma/Etapa', 'ID Aluno', 'Nome do Aluno', 'CPF', 'NIS', 'SUS', 'Severidade Máxima', 'Inconsistências Encontradas'];
     const rows = filteredAuditResults.map((item) => {
-      const issueTitles = item.issues.map((i) => i.title).join('; ');
+      const issueTitles = item.issues.map((i) => `[${i.title}]: ${i.description}`).join(' | ');
       return [
         `"${item.classGroup.name}"`,
         `"${item.student.stage || '-'}"`,
         `"${item.student.id}"`,
         `"${item.student.name}"`,
         `"${item.student.cpf || '-'}"`,
+        `"${item.student.nis || '-'}"`,
+        `"${item.student.sus || '-'}"`,
         `"${SEVERITY_CONFIG[item.maxSeverity]?.label || 'Baixa'}"`,
         `"${issueTitles}"`,
       ].join(',');
@@ -370,71 +485,81 @@ export function InconsistencyControl() {
   const safeClassesList = Array.isArray(classGroups) ? classGroups : [];
 
   return (
-    <div className="space-y-6 max-w-full overflow-hidden">
+    <div className="space-y-5 w-full min-w-0 max-w-full">
       {/* Header Banner */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-r from-primary/10 via-primary/5 to-background p-6 rounded-xl border">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">Relatório de Inconsistências de Dados</h1>
-            <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-gradient-to-r from-primary/10 via-primary/5 to-background p-5 rounded-xl border w-full min-w-0">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Relatório de Inconsistências de Dados</h1>
+            <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 shrink-0">
               Auditoria Automática
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Identifique cadastros incompletos, CPF ausente, falta de responsável e alunos pendentes de sub-turma.
+            Identifique cadastros incompletos, CPF ausente, falta de responsável, NIS/SUS pendentes e alunos sem sub-turma.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleExportCsv} className="gap-2">
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            Exportar CSV
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <Button
+            variant="default"
+            size="sm"
+            disabled={isGeneratingPdf || filteredAuditResults.length === 0}
+            onClick={handleExportPdf}
+            className="gap-1.5 bg-red-600 hover:bg-red-700 text-white shadow-sm font-medium h-8"
+          >
+            <FileDown className={cn("w-3.5 h-3.5", isGeneratingPdf && "animate-spin")} />
+            <span>{isGeneratingPdf ? 'Gerando PDF...' : 'Exportar Relatório PDF'}</span>
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportCsv} className="gap-1.5 h-8">
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Exportar CSV</span>
           </Button>
         </div>
       </div>
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="border-l-4 border-l-primary">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5 w-full min-w-0">
+        <Card className="border-l-4 border-l-primary min-w-0">
           <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total de Alunos</CardTitle>
             <Users className="w-4 h-4 text-primary" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="text-2xl font-bold">{stats.totalStudents}</div>
-            <p className="text-xs text-muted-foreground mt-1">Cadastrados em todas as turmas</p>
+            <p className="text-xs text-muted-foreground mt-1 truncate">Cadastrados em todas as turmas</p>
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-emerald-500">
+        <Card className="border-l-4 border-l-emerald-500 min-w-0">
           <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">Cadastros Regulares</CardTitle>
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="text-2xl font-bold text-emerald-600">{stats.cleanCount}</div>
-            <p className="text-xs text-muted-foreground mt-1">{stats.healthPercentage}% com dados completos</p>
+            <p className="text-xs text-muted-foreground mt-1 truncate">{stats.healthPercentage}% com dados completos</p>
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-red-500">
+        <Card className="border-l-4 border-l-red-500 min-w-0">
           <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">Inconsistências Pendentes</CardTitle>
             <UserX className="w-4 h-4 text-red-500" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="text-2xl font-bold text-red-600">{stats.flaggedCount}</div>
-            <p className="text-xs text-muted-foreground mt-1">Alunos requerem atenção</p>
+            <p className="text-xs text-muted-foreground mt-1 truncate">Alunos requerem atenção</p>
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-amber-500">
+        <Card className="border-l-4 border-l-amber-500 min-w-0">
           <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">Gravidade Alta / Crítica</CardTitle>
             <AlertTriangle className="w-4 h-4 text-amber-500" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="text-2xl font-bold text-amber-600">{stats.criticalCount + stats.highCount}</div>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs text-muted-foreground mt-1 truncate">
               {stats.criticalCount} Críticas, {stats.highCount} Altas
             </p>
           </CardContent>
@@ -442,9 +567,9 @@ export function InconsistencyControl() {
       </div>
 
       {/* Filters and Controls Bar */}
-      <Card>
+      <Card className="w-full min-w-0">
         <CardHeader className="p-4 pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
               <Filter className="w-4 h-4 text-primary" />
               Filtros da Auditoria
@@ -457,9 +582,9 @@ export function InconsistencyControl() {
           </div>
         </CardHeader>
         <CardContent className="p-4 pt-0">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 w-full min-w-0">
             {/* Search Input */}
-            <div className="relative">
+            <div className="relative min-w-0">
               <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
               <Input
                 placeholder="Buscar por nome ou CPF..."
@@ -470,51 +595,57 @@ export function InconsistencyControl() {
             </div>
 
             {/* Class Filter */}
-            <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Todas as Turmas" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as Turmas ({safeClassesList.length})</SelectItem>
-                {safeClassesList.map((cls: ClassGroup, idx: number) => {
-                  const val = cls.id || `cls-${idx}`;
-                  return (
-                    <SelectItem key={val} value={val}>
-                      {cls.name} ({(Array.isArray(cls.students) ? cls.students : []).length} alunos)
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
+            <div className="min-w-0">
+              <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Todas as Turmas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as Turmas ({safeClassesList.length})</SelectItem>
+                  {safeClassesList.map((cls: ClassGroup, idx: number) => {
+                    const val = cls.id || `cls-${idx}`;
+                    return (
+                      <SelectItem key={val} value={val}>
+                        {cls.name} ({(Array.isArray(cls.students) ? cls.students : []).length} alunos)
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
 
             {/* Severity Filter */}
-            <Select value={selectedSeverity} onValueChange={setSelectedSeverity}>
-              <SelectTrigger>
-                <SelectValue placeholder="Todas as Severidades" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as Severidades</SelectItem>
-                <SelectItem value="critical">Crítica ({stats.criticalCount})</SelectItem>
-                <SelectItem value="high">Alta ({stats.highCount})</SelectItem>
-                <SelectItem value="medium">Média ({stats.mediumCount})</SelectItem>
-                <SelectItem value="low">Baixa ({stats.lowCount})</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="min-w-0">
+              <Select value={selectedSeverity} onValueChange={setSelectedSeverity}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Todas as Severidades" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as Severidades</SelectItem>
+                  <SelectItem value="critical">Crítica ({stats.criticalCount})</SelectItem>
+                  <SelectItem value="high">Alta ({stats.highCount})</SelectItem>
+                  <SelectItem value="medium">Média ({stats.mediumCount})</SelectItem>
+                  <SelectItem value="low">Baixa ({stats.lowCount})</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
             {/* Rule Filter */}
-            <Select value={selectedRule} onValueChange={setSelectedRule}>
-              <SelectTrigger>
-                <SelectValue placeholder="Tipo de Inconsistência" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos os Tipos</SelectItem>
-                {Object.entries(RULE_LABELS).map(([key, label]) => (
-                  <SelectItem key={key} value={key}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="min-w-0">
+              <Select value={selectedRule} onValueChange={setSelectedRule}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Tipo de Inconsistência" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os Tipos</SelectItem>
+                  {Object.entries(RULE_LABELS).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -527,20 +658,20 @@ export function InconsistencyControl() {
             Lista de Inconsistências Identificadas ({filteredAuditResults.length})
           </CardTitle>
           <CardDescription>
-            Clique em <strong>"Corrigir"</strong> na linha do aluno para atualizar as informações faltantes.
+            Clique em <strong>"Corrigir"</strong> para editar manualmente ou em <strong>"Atualizar"</strong> para sincronizar direto do SGEdu.
           </CardDescription>
         </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
-          <Table className="w-full min-w-[700px]">
+        <CardContent className="p-0">
+          <Table className="w-full">
             <TableHeader>
               <TableRow className="bg-muted/50">
-                <TableHead className="w-10">#</TableHead>
-                <TableHead className="min-w-[160px]">Aluno</TableHead>
-                <TableHead className="min-w-[140px]">Turma / Etapa</TableHead>
-                <TableHead className="min-w-[120px]">CPF</TableHead>
-                <TableHead className="min-w-[90px]">Gravidade</TableHead>
-                <TableHead className="min-w-[220px]">Problemas Identificados</TableHead>
-                <TableHead className="w-24 text-right pr-4">Ação</TableHead>
+                <TableHead className="w-10 text-center pl-3 pr-1">#</TableHead>
+                <TableHead className="w-[20%] min-w-[130px]">Aluno</TableHead>
+                <TableHead className="w-[14%] min-w-[100px]">Turma / Etapa</TableHead>
+                <TableHead className="w-[14%] min-w-[100px]">CPF</TableHead>
+                <TableHead className="w-[12%] min-w-[85px]">Gravidade</TableHead>
+                <TableHead className="w-[25%] min-w-[150px]">Problemas Identificados</TableHead>
+                <TableHead className="w-[15%] min-w-[160px] text-right pr-4">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -570,60 +701,73 @@ export function InconsistencyControl() {
 
                   return (
                     <TableRow key={`${item.classGroup.id}-${item.student.id}`} className={SevConfig.borderClass}>
-                      <TableCell className="text-muted-foreground text-xs font-mono">{index + 1}</TableCell>
-                      <TableCell>
-                        <div className="font-semibold text-foreground">{item.student.name}</div>
-                        <div className="text-xs text-muted-foreground font-mono">ID: {item.student.id}</div>
+                      <TableCell className="text-muted-foreground text-xs font-mono text-center pl-3 pr-1">{index + 1}</TableCell>
+                      <TableCell className="py-2.5">
+                        <div className="font-semibold text-foreground text-sm leading-snug">{item.student.name}</div>
+                        <div className="text-[11px] text-muted-foreground font-mono">ID: {item.student.id}</div>
                       </TableCell>
-                      <TableCell>
-                        <div className="font-medium text-sm">{item.classGroup.name}</div>
+                      <TableCell className="py-2.5">
+                        <div className="font-medium text-xs leading-tight">{item.classGroup.name}</div>
                         {item.student.stage ? (
-                          <Badge variant="outline" className="text-xs mt-0.5 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 mt-0.5 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
                             {item.student.stage}
                           </Badge>
                         ) : (
                           item.classGroup.subStages && item.classGroup.subStages.length > 0 && (
-                            <Badge variant="outline" className="text-xs mt-0.5 bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400 border-red-300">
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 mt-0.5 bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400 border-red-300">
                               Sem Sub-turma
                             </Badge>
                           )
                         )}
                       </TableCell>
-                      <TableCell>
-                        <div className="text-xs font-mono">
+                      <TableCell className="py-2.5">
+                        <div className="text-xs font-mono whitespace-nowrap">
                           {item.student.cpf ? item.student.cpf : <span className="text-red-500 italic">Ausente</span>}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={`gap-1.5 px-2 py-0.5 font-semibold text-xs ${SevConfig.badgeClass}`}>
-                          <SevIcon className="w-3.5 h-3.5" />
+                      <TableCell className="py-2.5">
+                        <Badge variant="outline" className={`gap-1 px-1.5 py-0.5 font-semibold text-[11px] whitespace-nowrap ${SevConfig.badgeClass}`}>
+                          <SevIcon className="w-3 h-3" />
                           {SevConfig.label}
                         </Badge>
                       </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1.5">
+                      <TableCell className="py-2.5">
+                        <div className="flex flex-col gap-1">
                           {item.issues.map((issue) => (
                             <div
                               key={issue.id}
-                              className="text-xs bg-muted border px-2 py-1 rounded-md flex flex-col gap-0.5 max-w-xs"
+                              className="text-xs bg-muted/60 border px-2 py-0.5 rounded flex flex-col"
                               title={issue.description}
                             >
-                              <span className="font-semibold text-foreground">{issue.title}</span>
-                              <span className="text-[11px] text-muted-foreground">{issue.description}</span>
+                              <span className="font-medium text-foreground text-[11px] leading-tight">{issue.title}</span>
+                              <span className="text-[10px] text-muted-foreground leading-tight">{issue.description}</span>
                             </div>
                           ))}
                         </div>
                       </TableCell>
-                      <TableCell className="text-right pr-4">
-                        <Button
-                          variant="default"
-                          size="sm"
-                          className="gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm"
-                          onClick={() => handleOpenEdit(item.student, item.classGroup)}
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                          Corrigir
-                        </Button>
+                      <TableCell className="text-right pr-4 py-2.5 whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={refreshingStudentId === item.student.id}
+                            className="gap-1 border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950 h-7 px-2 text-xs font-medium"
+                            onClick={() => handleRefreshStudent(item.student, item.classGroup)}
+                            title="Buscar dados mais recentes no SGEdu"
+                          >
+                            <RefreshCw className={cn("w-3 h-3", refreshingStudentId === item.student.id && "animate-spin")} />
+                            <span>{refreshingStudentId === item.student.id ? 'Atualizando...' : 'Atualizar'}</span>
+                          </Button>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="gap-1 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm h-7 px-2.5 text-xs font-medium"
+                            onClick={() => handleOpenEdit(item.student, item.classGroup)}
+                          >
+                            <Edit className="w-3 h-3" />
+                            <span>Corrigir</span>
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -645,6 +789,11 @@ export function InconsistencyControl() {
           student={editingStudent}
           classId={editingClassGroup.id}
           onUpdate={handleSaveStudent}
+          onRefresh={async () => {
+            if (editingStudent && editingClassGroup) {
+              await handleRefreshStudent(editingStudent, editingClassGroup);
+            }
+          }}
         />
       )}
     </div>

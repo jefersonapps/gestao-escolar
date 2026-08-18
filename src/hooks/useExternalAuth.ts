@@ -11,7 +11,6 @@ const services: Record<ExternalSystem, IExternalAuthService> = {
 };
 
 export function useExternalAuth(system: ExternalSystem) {
-    const { externalSessions } = useStore();
     const service: IExternalAuthService = services[system];
     
     // Helper names for display 
