@@ -110,8 +110,21 @@ export const generateCertificatesPdf = async ({
 
       // Set Font Family & Style
       const fontStyle = field.fontWeight || 'normal';
-      doc.setFont(field.fontFamily || 'helvetica', fontStyle);
-      doc.setFontSize(field.fontSize || 16);
+      const fontFamily = field.fontFamily || 'helvetica';
+      doc.setFont(fontFamily, fontStyle);
+
+      // Auto-shrink font size to fit within fieldWidth
+      const baseFontSize = field.fontSize || 16;
+      const minFontSize = 6;
+      let finalFontSize = baseFontSize;
+      doc.setFontSize(finalFontSize);
+
+      let textWidth = doc.getTextWidth(renderedText);
+      while (textWidth > fieldWidth && finalFontSize > minFontSize) {
+        finalFontSize -= 0.5;
+        doc.setFontSize(finalFontSize);
+        textWidth = doc.getTextWidth(renderedText);
+      }
 
       // Set Text Color
       const [r, g, b] = hexToRgb(field.color || '#1e293b');
@@ -125,11 +138,10 @@ export const generateCertificatesPdf = async ({
         anchorX = fieldX + fieldWidth;
       }
 
-      // Render text centered vertically inside the container box to match screen preview pixel-perfectly
+      // Render text centered vertically inside the container box
       doc.text(renderedText, anchorX, centerY, {
         align: field.align || 'left',
         baseline: 'middle',
-        maxWidth: Math.max(fieldWidth, 20),
       });
     }
   }

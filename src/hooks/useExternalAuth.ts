@@ -11,7 +11,7 @@ const services: Record<ExternalSystem, IExternalAuthService> = {
 };
 
 export function useExternalAuth(system: ExternalSystem) {
-    const { setSGEduLoginOpen, externalSessions, logoutExternalSystem } = useStore();
+    const { externalSessions } = useStore();
     const service: IExternalAuthService = services[system];
     
     // Helper names for display 
@@ -21,11 +21,13 @@ export function useExternalAuth(system: ExternalSystem) {
     };
 
     const requireSession = async (): Promise<boolean> => {
-        const session = externalSessions[system];
+        // Read fresh state directly from store to avoid stale closure issues
+        // (e.g. when handleLogin sets session then immediately calls loadClasses)
+        const currentSession = useStore.getState().externalSessions[system];
         
-        if (!session) {
+        if (!currentSession) {
             toast.warning(`Você precisa fazer login no ${systemNames[system]} primeiro.`);
-            if (system === 'sgedu') setSGEduLoginOpen(true);
+            if (system === 'sgedu') useStore.getState().setSGEduLoginOpen(true);
             else if (system === 'saev') useStore.getState().setSaevLoginOpen(true);
             return false;
         }
@@ -33,8 +35,8 @@ export function useExternalAuth(system: ExternalSystem) {
         const isValid = await service.checkSession();
         if (!isValid) {
             toast.warning(`Sua sessão no ${systemNames[system]} expirou. Por favor, faça login novamente.`);
-            logoutExternalSystem(system);
-            if (system === 'sgedu') setSGEduLoginOpen(true);
+            useStore.getState().logoutExternalSystem(system);
+            if (system === 'sgedu') useStore.getState().setSGEduLoginOpen(true);
             else if (system === 'saev') useStore.getState().setSaevLoginOpen(true);
             return false;
         }

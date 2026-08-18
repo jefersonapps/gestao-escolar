@@ -235,7 +235,7 @@ export function CertificatesControl() {
   const [activeStep, setActiveStep] = useState<string>('template');
 
   // State: Template & Canvas
-  const [template, setTemplate] = useState<CertificateTemplate>(createGoldTemplate());
+  const [template, setTemplate] = useState<CertificateTemplate>(createCertificadoPadraoTemplate('/images/certificado_padrao.png'));
   const [isLoadingPreset, setIsLoadingPreset] = useState(false);
 
   // Handler: Select the Certificado Padrão preset
@@ -267,6 +267,7 @@ export function CertificatesControl() {
   const [saevRawStudents, setSaevRawStudents] = useState<CertificateStudentData[]>([]);
   const [rankingMode, setRankingMode] = useState<SaevRankingMode>('all');
   const [readingLevelFilter, setReadingLevelFilter] = useState<string>('all');
+  const [etapaFilter, setEtapaFilter] = useState<'all' | 'fund1' | 'fund2'>('all');
 
   // State: Selected Students for PDF Batch
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
@@ -545,11 +546,27 @@ export function CertificatesControl() {
     return list;
   }, [currentStudentsSource]);
 
-  // Step 1: Filter raw students by Reading Level
-  const levelFilteredStudents = useMemo(() => {
-    if (readingLevelFilter === 'all') return currentStudentsSource;
+  // Step 0.5: Filter by Etapa (Fundamental I = 1º-5º, Fundamental II = 6º-9º)
+  const etapaFilteredStudents = useMemo(() => {
+    if (etapaFilter === 'all') return currentStudentsSource;
 
     return currentStudentsSource.filter((student) => {
+      const turma = (student.turma || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      // Extract the grade number from turma name (e.g. "1º Ano A" -> 1, "6º Ano B" -> 6)
+      const match = turma.match(/(\d+)/);
+      if (!match) return etapaFilter === 'fund1'; // default to fund1 if no number found
+      const gradeNum = parseInt(match[1], 10);
+      if (etapaFilter === 'fund1') return gradeNum >= 1 && gradeNum <= 5;
+      if (etapaFilter === 'fund2') return gradeNum >= 6 && gradeNum <= 9;
+      return true;
+    });
+  }, [currentStudentsSource, etapaFilter]);
+
+  // Step 1: Filter raw students by Reading Level
+  const levelFilteredStudents = useMemo(() => {
+    if (readingLevelFilter === 'all') return etapaFilteredStudents;
+
+    return etapaFilteredStudents.filter((student) => {
       const rawLev = (student.nivel_leitura || '').trim();
       const levNorm = rawLev
         .normalize('NFD')
@@ -568,7 +585,7 @@ export function CertificatesControl() {
       }
       return levNorm === filterNorm || rawLev.toLowerCase() === readingLevelFilter.toLowerCase();
     });
-  }, [currentStudentsSource, readingLevelFilter]);
+  }, [etapaFilteredStudents, readingLevelFilter]);
 
   // Step 2: Dynamically Calculate Dense Podium Ranking (1º, 2º, 3º...) for the Filtered Subset
   const dynamicallyRankedStudents = useMemo(() => {
@@ -694,11 +711,6 @@ export function CertificatesControl() {
             </p>
           </div>
         </div>
-
-        <Badge variant="outline" className="text-amber-700 bg-amber-50 border-amber-200 px-3 py-1 text-xs gap-1.5 font-medium">
-          <Sparkles className="w-3.5 h-3.5" />
-          Prático e Automático para Leigos
-        </Badge>
       </div>
 
       {/* Main Wizard Navigation Tabs */}
@@ -1035,6 +1047,23 @@ export function CertificatesControl() {
                           >
                             ⭐ Top 5 (1º ao 5º) ({filterCounts.top5})
                           </Button>
+                        </div>
+
+                        {/* Etapa Filter Dropdown */}
+                        <div className="flex items-center gap-2">
+                          <Label className="text-xs font-semibold text-amber-900 flex items-center gap-1">
+                            <School className="w-3.5 h-3.5 text-amber-700" />
+                            Etapa:
+                          </Label>
+                          <select
+                            value={etapaFilter}
+                            onChange={(e) => setEtapaFilter(e.target.value as 'all' | 'fund1' | 'fund2')}
+                            className="h-8 text-xs font-medium border border-amber-300 rounded-md bg-white text-slate-900 px-2.5 shadow-xs focus:ring-2 focus:ring-amber-500/20"
+                          >
+                            <option value="all">🏫 Todas as Etapas</option>
+                            <option value="fund1">📗 Fundamental I (1º ao 5º)</option>
+                            <option value="fund2">📘 Fundamental II (6º ao 9º)</option>
+                          </select>
                         </div>
 
                         {/* Reading Level Filter Dropdown */}
