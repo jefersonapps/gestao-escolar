@@ -14,12 +14,21 @@ function getDayOfWeek(year: number, month: number, day: number): number {
   return new Date(year, month - 1, day).getDay();
 }
 
+export interface AttendanceHoliday {
+  id: string;
+  type: 'feriado' | 'paralisacao' | 'recesso' | 'outro';
+  startDay: number;
+  endDay: number;
+  description: string;
+}
+
 interface WorkerInput {
   turma: string;
   professor: string;
   month: number;
   year: number;
   students: string[];
+  holidays?: AttendanceHoliday[];
   fontBase64: string | null;
   logoLeftBase64: string | null;
   logoRightBase64: string | null;
@@ -27,7 +36,7 @@ interface WorkerInput {
 
 self.onmessage = (e: MessageEvent<WorkerInput>) => {
   try {
-    const { turma, professor, month, year, students, fontBase64, logoLeftBase64, logoRightBase64 } = e.data;
+    const { turma, professor, month, year, students, holidays, fontBase64, logoLeftBase64, logoRightBase64 } = e.data;
     const daysInMonth = getDaysInMonth(year, month);
     const monthName = MONTH_NAMES_PT[month - 1];
 
@@ -184,18 +193,28 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
         const day = i + 1;
         const dow = getDayOfWeek(year, month, day);
         const isWeekend = dow === 0 || dow === 6;
+        const holiday = holidays?.find((h: any) => day >= h.startDay && day <= h.endDay);
         const content = isWeekend ? DOW_LETTERS[dow] : String(day);
 
-        // Weekends: Light Green [144, 238, 144]
-        // Weekdays: Pale Green [200, 255, 200]
-        const fillColor: [number, number, number] = isWeekend 
-            ? [144, 238, 144] 
-            : [200, 255, 200]; 
+        let fillColor: [number, number, number];
+        let textColor: [number, number, number] = [0, 0, 0];
+
+        if (holiday) {
+          fillColor = [254, 202, 202]; // Pastel Red
+          textColor = [153, 27, 27];   // Dark Red
+        } else if (isWeekend) {
+          fillColor = [255, 218, 185]; // Pastel Orange
+          textColor = [0, 0, 0];
+        } else {
+          fillColor = [200, 255, 200]; // Pale Green
+          textColor = [0, 0, 0];
+        }
 
         return {
           content,
           styles: {
             fillColor,
+            textColor,
             fontStyle: 'bold' as const,
             halign: 'center' as const,
             fontSize: 9,
@@ -214,8 +233,8 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
           content: cleanName, 
           styles: { 
             halign: 'left', 
-            fontSize: 11, // REDUCED TO 11pt to save space
-            cellPadding: { top: 0.5, bottom: 0.5, left: 1, right: 0.5 } // MINIMAL PADDING
+            fontSize: 11,
+            cellPadding: { top: 0.5, bottom: 0.5, left: 1, right: 0.5 }
           } 
         },
       ];
@@ -224,10 +243,21 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
         const day = i + 1;
         const dow = getDayOfWeek(year, month, day);
         const isWeekend = dow === 0 || dow === 6;
+        const holiday = holidays?.find((h: any) => day >= h.startDay && day <= h.endDay);
+
+        let fillColor: [number, number, number];
+        if (holiday) {
+          fillColor = [254, 215, 215]; // Soft Pastel Red
+        } else if (isWeekend) {
+          fillColor = [255, 228, 205]; // Soft Pastel Orange
+        } else {
+          fillColor = [255, 255, 255]; // White
+        }
+
         rowData.push({
           content: '',
           styles: {
-             fillColor: isWeekend ? [144, 238, 144] : [255, 255, 255],
+             fillColor,
              halign: 'center',
              fontSize: 9 
           }
@@ -243,6 +273,10 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
     for(let i=0; i<daysInMonth; i++) {
       columnStyles[i+2] = { cellWidth: dayColWidth };
     }
+
+    let tableBodyStartY = 0;
+    let tableBodyEndY = 0;
+    const dayColBounds: Record<number, { x: number; width: number }> = {};
 
     autoTable(doc, {
       startY: cursorY,
@@ -270,10 +304,62 @@ self.onmessage = (e: MessageEvent<WorkerInput>) => {
         if (data.section === 'body' && data.column.index === 1) {
            data.cell.styles.overflow = 'ellipsize';
         }
+      },
+      didDrawCell: (data) => {
+        if (data.section === 'head') {
+          tableBodyStartY = Math.max(tableBodyStartY, data.cell.y + data.cell.height);
+          if (data.column.index >= 2) {
+            const day = data.column.index - 1; // Column 2 is Day 1, Column 3 is Day 2, etc.
+            dayColBounds[day] = { x: data.cell.x, width: data.cell.width };
+          }
+        } else if (data.section === 'body') {
+          tableBodyEndY = Math.max(tableBodyEndY, data.cell.y + data.cell.height);
+        }
       }
     });
 
-    const finalY = (doc as any).lastAutoTable.finalY + 4; // reduced spacing
+    const finalTableBottom = tableBodyEndY > 0 ? tableBodyEndY : ((doc as any).lastAutoTable?.finalY || (tableBodyStartY + 50));
+    const colHeight = finalTableBottom - tableBodyStartY;
+
+    // Draw vertical holiday/stoppage text across student rows for each holiday day
+    if (holidays && holidays.length > 0 && colHeight > 10) {
+      for (const holiday of holidays) {
+        for (let day = holiday.startDay; day <= Math.min(holiday.endDay, daysInMonth); day++) {
+          const bounds = dayColBounds[day];
+          if (!bounds) continue;
+
+          const centerX = bounds.x + bounds.width / 2;
+          const centerY = tableBodyStartY + colHeight / 2;
+
+          doc.setFont('times', 'bold');
+          doc.setTextColor(140, 20, 20);
+
+          let fontSize = 7.5;
+          doc.setFontSize(fontSize);
+          const text = holiday.description.toUpperCase();
+          let textWidth = doc.getTextWidth(text);
+
+          if (textWidth > colHeight * 0.85) {
+            fontSize = Math.max(4.5, (fontSize * (colHeight * 0.85)) / textWidth);
+            doc.setFontSize(fontSize);
+            textWidth = doc.getTextWidth(text); // Recalculate with adjusted fontSize
+          }
+
+          // In jsPDF, angle: 90 rotates counter-clockwise, so text extends UPWARD
+          // from the anchor point. To center vertically, the anchor Y must be
+          // at centerY + textWidth/2 so the text spans equally above and below center.
+          const startY = centerY + textWidth / 2;
+          const startX = centerX + 0.8;
+
+          doc.text(text, startX, startY, {
+            angle: 90,
+          });
+        }
+      }
+      doc.setTextColor(0, 0, 0);
+    }
+
+    const finalY = tableBodyEndY + 4; // reduced spacing
 
     // ========== LEGEND ==========
     const legendY = finalY > pageHeight - 10 ? pageHeight - 5 : finalY;

@@ -650,6 +650,223 @@ export class SGEduService implements IExternalAuthService {
       return null;
   }
 
+  private extractClassProfessor(doc: Document): string {
+    const teacherNames = new Set<string>();
+
+    // Strategy 1: Direct SGEdu layout classes strictly inside discipline items
+    const sgeduTeacherEls = doc.querySelectorAll(
+      '.class-disciplines-card .class-teacher-line, .class-discipline-list .class-teacher-line, .class-discipline-item .class-teacher-line, .class-discipline-item .class-teacher-photo[data-name]'
+    );
+    sgeduTeacherEls.forEach(el => {
+      const dataName = el.getAttribute('data-name');
+      const text = (dataName || el.textContent || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+      if (
+        text &&
+        text.length >= 4 &&
+        !/^\d+$/.test(text) &&
+        !/foto/i.test(text) &&
+        text.split(/\s+/).length >= 2
+      ) {
+        teacherNames.add(text);
+      }
+    });
+
+    if (teacherNames.size > 0) {
+      const uniqueProfessors = Array.from(teacherNames);
+      console.log('[SGEdu] Extracted teacher names via .class-teacher-line:', uniqueProfessors);
+      if (uniqueProfessors.length === 1) {
+        return uniqueProfessors[0];
+      } else if (uniqueProfessors.length > 1) {
+        return 'PREENCHER A FREQUÊNCIA QUEM LECIONAR A PRIMEIRA AULA DO DIA';
+      }
+    }
+
+    // Strategy 2: Fallback for generic/legacy SGEdu layout
+    const KNOWN_SUBJECT_TERMS = [
+      'arte', 'artes', 'ciência', 'ciencias', 'ciências', 'ciência das religiões', 'ciencia das religioes',
+      'religião', 'religiao', 'religiões', 'religioes', 'computação', 'computacao',
+      'educação física', 'educacao fisica', 'geografia', 'história', 'historia',
+      'matemática', 'matematica', 'português', 'portugues', 'língua portuguesa', 'lingua portuguesa',
+      'inglês', 'ingles', 'língua inglesa', 'lingua inglesa', 'redação', 'redacao',
+      'física', 'fisica', 'química', 'quimica', 'biologia', 'filosofia', 'sociologia',
+      'literatura', 'ensino religioso', 'projeto de vida', 'estudos amazônicos', 'estudos amazonicos',
+      'robótica', 'robotica', 'música', 'musica', 'leitura', 'produção de texto', 'producao de texto',
+      'aulas', 'frequência', 'frequencia', 'avaliações', 'avaliacoes', 'disciplina', 'curso', 'turma'
+    ];
+
+    const isSubjectOrInvalid = (str: string): boolean => {
+      const norm = str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      if (!norm || norm.length < 3 || /^\d+$/.test(norm)) return true;
+      if (/\d+\s*aulas?/i.test(norm)) return true;
+      if (/\b\d+[°ºª]\s*ano\b/i.test(norm)) return true;
+      if (norm.includes(' - ') || norm.includes('–') || norm.includes('—')) return true;
+      if (/\b(ano|serie|turma|curso|disciplinas?|modulo|etapa|semestre|bimestre)\b/i.test(norm)) return true;
+      for (const term of KNOWN_SUBJECT_TERMS) {
+        if (norm === term || norm.startsWith(term + ' ') || norm.endsWith(' ' + term) || norm.includes(term)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const isValidPersonName = (str: string): boolean => {
+      const trimmed = str.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+      if (isSubjectOrInvalid(trimmed)) return false;
+      const words = trimmed.split(/\s+/);
+      if (words.length < 2) return false;
+      const capWords = words.filter(w => /^[A-ZÀ-Ü]/.test(w));
+      return capWords.length >= 2;
+    };
+
+    const actionBtns = Array.from(doc.querySelectorAll('a, button, .btn, [class*="btn"]')).filter(el => {
+      const t = el.textContent?.trim().toLowerCase() || '';
+      return t.includes('aula') || t.includes('frequência') || t.includes('frequencia') || t.includes('avaliaç') || t.includes('avaliac');
+    });
+
+    const checkedContainers = new Set<Element>();
+    actionBtns.forEach(btn => {
+      const container = btn.closest('.class-discipline-item, .card, .box, .list-group-item, .media, .info-box, li, tr, div') || btn.parentElement;
+      if (!container || checkedContainers.has(container)) return;
+      checkedContainers.add(container);
+
+      const teacherLine = container.querySelector('.class-teacher-line');
+      if (teacherLine) {
+        const t = teacherLine.textContent?.trim();
+        if (t && isValidPersonName(t)) {
+          teacherNames.add(t);
+          return;
+        }
+      }
+
+      const photoBtn = container.querySelector('[data-name]');
+      if (photoBtn) {
+        const dName = photoBtn.getAttribute('data-name');
+        if (dName && isValidPersonName(dName)) {
+          teacherNames.add(dName);
+          return;
+        }
+      }
+    });
+
+    const uniqueProfessors = Array.from(teacherNames);
+    console.log('[SGEdu] Extracted teacher names (fallback):', uniqueProfessors);
+
+    if (uniqueProfessors.length === 1) {
+      return uniqueProfessors[0];
+    } else if (uniqueProfessors.length > 1) {
+      return 'PREENCHER A FREQUÊNCIA QUEM LECIONAR A PRIMEIRA AULA DO DIA';
+    }
+    return '';
+  }
+
+  /**
+   * Lightweight method for attendance sheet: extracts only student names
+   * and professors from the class page. Does NOT fetch individual student
+   * detail pages, so it's much faster.
+   */
+  async getStudentNamesAndProfessorFromClass(classIdOrUrl: string): Promise<{ professor: string, studentNames: string[] }> {
+    try {
+      const url = classIdOrUrl.startsWith('http') 
+          ? classIdOrUrl 
+          : (classIdOrUrl.startsWith('/') ? `${SGEduService.BASE_URL}${classIdOrUrl}` : `${SGEduService.BASE_URL}/turmas/${classIdOrUrl}`);
+          
+      console.log('[SGEdu] getStudentNamesAndProfessorFromClass URL:', url);
+      
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: this.getHeaders()
+      });
+
+      const html = await res.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      const professor = this.extractClassProfessor(doc);
+
+      // --- Extract student names only (no detail fetching) ---
+      const studentNames: string[] = [];
+      const addedNames = new Set<string>();
+      const mainContent = doc.querySelector('.content-wrapper, .content, .main-content, #content, .class-show-page, body') || doc.body;
+
+      const isTransferredOrInactive = (el: Element): boolean => {
+        const badgeEls = el.querySelectorAll('.class-student-badges, .badge, .label, .tag, .status, span');
+        for (const b of Array.from(badgeEls)) {
+          const text = b.textContent?.trim().toLowerCase() || '';
+          if (
+            text.includes('transferid') || 
+            text.includes('cancelad') || 
+            text.includes('desistent') || 
+            text.includes('inativ') || 
+            text.includes('evadid') || 
+            text.includes('remanejad') ||
+            text.includes('desvinculad')
+          ) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      const addName = (rawName: string) => {
+        let name = rawName.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+        name = name.replace(/\s*\(PCD\)\s*/gi, '').trim();
+        if (!name || name.length < 2 || /^(ações|acoes|opções|opcoes|nome|matrícula|matricula|#|\d+|alunos|professor)$/i.test(name)) {
+          return;
+        }
+        if (!addedNames.has(name)) {
+          addedNames.add(name);
+          studentNames.push(name);
+        }
+      };
+
+      // 1. Modern layout: div-based student rows
+      const studentRows = mainContent.querySelectorAll('.class-student-row, [class*="student-row"]');
+      if (studentRows.length > 0) {
+        studentRows.forEach(row => {
+          if (isTransferredOrInactive(row)) return;
+          const nameLink = row.querySelector('.class-student-name a, .class-student-main a, a');
+          const nameText = row.querySelector('.class-student-name, .class-student-main')?.textContent || '';
+          const name = nameLink?.textContent?.trim() || nameText.trim();
+          if (name) addName(name);
+        });
+      }
+
+      // 2. Legacy: table-based extraction
+      if (studentNames.length === 0) {
+        const tableRows = mainContent.querySelectorAll('table tbody tr, table tr');
+        tableRows.forEach(row => {
+          if (isTransferredOrInactive(row)) return;
+          const nameLink = row.querySelector('td a, a');
+          const cells = Array.from(row.querySelectorAll('td'));
+          const name = nameLink?.textContent?.trim() || cells[1]?.textContent?.trim() || cells[0]?.textContent?.trim() || '';
+          if (name) addName(name);
+        });
+      }
+
+      // 3. Universal fallback: any student link
+      if (studentNames.length === 0) {
+        const allStudentLinks = mainContent.querySelectorAll('a[href*="/alunos/"]');
+        allStudentLinks.forEach(link => {
+          const href = link.getAttribute('href') || '';
+          if (/\/turma/i.test(href) || /\/professores/i.test(href) || /\/escola/i.test(href)) return;
+          const parentRow = link.closest('.class-student-row, tr, li, div') || link.parentElement;
+          if (parentRow && isTransferredOrInactive(parentRow)) return;
+          const name = link.textContent?.trim() || '';
+          if (name) addName(name);
+        });
+      }
+
+      // Sort alphabetically
+      studentNames.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+      console.log(`[SGEdu] Lightweight extraction: ${studentNames.length} students, professor="${professor}"`);
+      return { professor, studentNames };
+    } catch (e) {
+      console.error('[SGEdu] Error in lightweight class extraction:', e);
+      return { professor: '', studentNames: [] };
+    }
+  }
+
   async getStudentsFromClass(classIdOrUrl: string): Promise<{ professor: string, students: import('../types').Student[] }> {
     try {
       const url = classIdOrUrl.startsWith('http') 
@@ -671,17 +888,8 @@ export class SGEduService implements IExternalAuthService {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
 
-      // Extract Professor Name
-      let professor = '';
-      const h5s = doc.querySelectorAll('h5, h4, .professor-name, .info-box-text, p, div, span, td, .class-teacher-line');
-      h5s.forEach(h5 => {
-          if (h5.textContent?.includes('Professor')) {
-             const parts = h5.textContent.split(':');
-             if (parts.length > 1) {
-                 professor = parts[1].trim();
-             }
-          }
-      });
+      // Extract Professor Name using the discipline-aware extractor
+      const professor = this.extractClassProfessor(doc);
 
       const students: import('../types').Student[] = [];
       const addedIds = new Set<string>();

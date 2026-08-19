@@ -68,16 +68,25 @@ const loadImageAsBase64 = async (url: string): Promise<string | null> => {
   }
 };
 
+export interface AttendanceHoliday {
+  id: string;
+  type: 'feriado' | 'paralisacao' | 'recesso' | 'outro';
+  startDay: number;
+  endDay: number;
+  description: string;
+}
+
 interface AttendancePdfParams {
   turma: string;
   professor: string;
   month: number; // 1-12
   year: number;
   students: string[]; // already sorted
+  holidays?: AttendanceHoliday[];
 }
 
 export const exportAttendancePdf = async (params: AttendancePdfParams) => {
-  const { turma, professor, month, year, students } = params;
+  const { turma, professor, month, year, students, holidays } = params;
   const monthName = MONTH_NAMES_PT[month - 1];
 
   // Load assets on main thread (needs DOM/fetch)
@@ -113,6 +122,7 @@ export const exportAttendancePdf = async (params: AttendancePdfParams) => {
       month,
       year,
       students,
+      holidays,
       fontBase64,
       logoLeftBase64,
       logoRightBase64,

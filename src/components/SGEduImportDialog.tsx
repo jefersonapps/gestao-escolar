@@ -16,7 +16,7 @@ interface SGEduImportDialogProps {
   onClose: () => void;
   onImport: (students: import('@/types').Student[], professor?: string, className?: string, url?: string) => void;
   onImportProfessors?: (professors: { id: string, name: string }[]) => void;
-  mode?: 'class' | 'professor';
+  mode?: 'class' | 'professor' | 'attendance';
 }
 
 export function SGEduImportDialog({ 
@@ -46,7 +46,7 @@ export function SGEduImportDialog({
   // Auto-load classes or professors if user is already logged in
   useEffect(() => {
     if (isOpen && sgeduUser && step === 'select-class') {
-        if (mode === 'class' && classes.length === 0) {
+        if ((mode === 'class' || mode === 'attendance') && classes.length === 0) {
             setIsLoading(true);
             loadClasses();
         } else if (mode === 'professor') {
@@ -103,7 +103,7 @@ export function SGEduImportDialog({
             console.error('Failed to fetch user profile after login', error);
         }
 
-        if (mode === 'class') {
+        if (mode === 'class' || mode === 'attendance') {
             await loadClasses();
         } else {
              setStep('select-class'); // move to next step which triggers useEffect
@@ -144,6 +144,24 @@ export function SGEduImportDialog({
       if (!(await requireSession())) {
         setIsLoading(false);
         setSelectedImportClassId(null);
+        return;
+      }
+
+      // Fast path for attendance: only student names and professor from class page are needed
+      if (mode === 'attendance') {
+        setLoadingStudent(`Carregando dados da turma ${cls.name}...`);
+        const { professor, students } = await sgeService.getStudentsFromClass(cls.url);
+        
+        if (students.length === 0) {
+          toast.warning('Nenhum aluno encontrado nesta turma.');
+          setIsLoading(false);
+          setSelectedImportClassId(null);
+          return;
+        }
+
+        toast.success(`${students.length} alunos carregados para a frequência!`);
+        onImport(students, professor, cls.name, cls.url);
+        onClose();
         return;
       }
 
@@ -202,7 +220,9 @@ export function SGEduImportDialog({
         <DialogHeader>
           <DialogTitle>Importar do SGEdu</DialogTitle>
           <DialogDescription>
-              {mode === 'class' 
+              {mode === 'attendance'
+                ? 'Selecione a turma para carregar rapidamente os alunos e o(a) professor(a).'
+                : mode === 'class' 
                 ? 'Conecte-se para puxar todos os detalhes dos alunos de uma turma.'
                 : 'Conecte-se para importar a lista de professores da escola.'
               }
@@ -276,6 +296,15 @@ export function SGEduImportDialog({
                                        {loadingStudent && <div className="text-xs text-muted-foreground mt-1 truncate max-w-62.5">{loadingStudent}</div>}
                                    </>
                                )
+                               : mode === 'attendance'
+                               ? (
+                                   <>
+                                       <div className="font-semibold text-foreground">
+                                           Carregando turma...
+                                       </div>
+                                       {loadingStudent && <div className="text-xs text-muted-foreground mt-1 truncate max-w-62.5">{loadingStudent}</div>}
+                                   </>
+                               )
                                : mode === 'professor'
                                ? 'Importando lista de professores...'
                                : 'Carregando lista de turmas...'}
@@ -291,7 +320,7 @@ export function SGEduImportDialog({
                  </div>
              ) : (
                  <>
-                 {mode === 'class' ? (
+                 {mode === 'class' || mode === 'attendance' ? (
                     <>
                      <div className="relative">
                         <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />

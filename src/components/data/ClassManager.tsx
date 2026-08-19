@@ -13,6 +13,7 @@ import { StudentDetailsDialog } from '../StudentDetailsDialog';
 import { SGEduService } from '@/services/sgedu';
 import { toast } from 'sonner';
 import { useExternalAuth } from '@/hooks/useExternalAuth';
+import { parseStudentList } from '@/lib/utils';
 
 export function ClassManager() {
   const { classes, addClassGroup, deleteClassGroup, updateClassGroup, stages, updateClassStudents } = useStore();
@@ -177,55 +178,34 @@ export function ClassManager() {
   const handleManualAddStudents = () => {
       if (!manualTargetClassId || !manualStudentsText.trim()) return;
 
-      const lines = manualStudentsText.split('\n');
-      const newStudents: import('@/types').Student[] = [];
+      const parsedNames = parseStudentList(manualStudentsText);
+      const newStudents: import('@/types').Student[] = parsedNames.map((name) => ({
+        id: `manual-${Math.random().toString(36).substr(2, 9)}`,
+        name,
+      }));
 
-      for (const line of lines) {
-       // Remove leading number + tab/spaces, then remove | artifacts and trailing whitespace
-       let cleaned = line
-         .replace(/^\d+\s*[\t]/, '') // remove leading "1\t", "2\t" etc
-         .replace(/\|/g, '')         // remove pipe characters
-         .replace(/\t.*/g, '')       // remove everything after tab (attendance data)
-         .replace(/\s*\(PCD\)\s*/gi, '') // remove (PCD) suffix
-         .trim();
- 
-       // Skip students marked as "Transferido"
-       if (/^Transferido\s/i.test(cleaned)) {
-         continue;
-       }
- 
-       if (cleaned) {
-         // Generate a temporary ID or use a UUID if we had a generator. 
-         // For now, let's use a random string or let the backend handle it? 
-         // We are client-side only for now.
-         // Let's use a simple random ID to avoid collisions with SGEdu IDs (which are numbers usually).
-         // Prefix with 'manual-' to identify.
-         const id = `manual-${Math.random().toString(36).substr(2, 9)}`;
-         newStudents.push({ id, name: cleaned });
-       }
-     }
+      if (newStudents.length > 0) {
+          const cls = classes.find(c => c.id === manualTargetClassId);
+          if (cls) {
+              const currentStudents = cls.students || [];
+              const existingNames = new Set(currentStudents.map(s => s.name.toLowerCase()));
+              const filteredNew = newStudents.filter(s => !existingNames.has(s.name.toLowerCase()));
+              
+              if (filteredNew.length === 0) {
+                  toast.warning('Todos os alunos já estão cadastrados nesta turma.');
+              } else {
+                  const updatedStudents = [...currentStudents, ...filteredNew];
+                  updatedStudents.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+                  updateClassStudents(manualTargetClassId, updatedStudents);
+                  toast.success(`${filteredNew.length} alunos adicionados à turma.`);
+              }
+          }
+      } else {
+          toast.warning('Nenhum nome de aluno válido foi identificado.');
+      }
 
-     if (newStudents.length > 0) {
-         const cls = classes.find(c => c.id === manualTargetClassId);
-         if (cls) {
-             const currentStudents = cls.students || [];
-             // Filter out duplicates based on name? Or allow duplicates? 
-             // Usually better to avoid exact name duplicates.
-             const existingNames = new Set(currentStudents.map(s => s.name.toLowerCase()));
-             const filteredNew = newStudents.filter(s => !existingNames.has(s.name.toLowerCase()));
-             
-             if (filteredNew.length === 0) {
-                 toast.warning('Todos os alunos já estão cadastrados nesta turma.');
-             } else {
-                 const updatedStudents = [...currentStudents, ...filteredNew];
-                 updatedStudents.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
-                 updateClassStudents(manualTargetClassId, updatedStudents);
-                 toast.success(`${filteredNew.length} alunos adicionados à turma.`);
-             }
-         }
-     }
-
-     setIsManualAddOpen(false);
+      setManualStudentsText('');
+      setIsManualAddOpen(false);
   };
 
   return (
@@ -450,14 +430,14 @@ export function ClassManager() {
         isOpen={isStudentDetailsOpen}
         onClose={() => setIsStudentDetailsOpen(false)}
         onRefresh={handleRefreshStudent}
-        onUpdate={(updated) => {
+        onUpdate={(updated: import('@/types').Student) => {
             if (selectedClassId) {
                 persistStudentUpdate(selectedClassId, updated);
                 setSelectedStudent(updated);
                 toast.success('Dados do aluno atualizados.');
             }
         }}
-        onDelete={(studentId, clsId) => {
+        onDelete={(studentId: string, clsId: string) => {
             const cls = classes.find(c => c.id === clsId);
             if (cls && cls.students) {
                 const newStudents = cls.students.filter(s => s.id !== studentId);

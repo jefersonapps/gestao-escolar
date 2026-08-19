@@ -86,3 +86,93 @@ export const calculateAge = (dateString: string): number | null => {
     
     return age;
 };
+
+export interface ParseStudentListOptions {
+  excludeTransferred?: boolean;
+}
+
+export function parseStudentList(rawText: string, options: ParseStudentListOptions = { excludeTransferred: true }): string[] {
+  const { excludeTransferred = true } = options;
+  if (!rawText || !rawText.trim()) return [];
+
+  const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const names: string[] = [];
+
+  const statusKeywords = /^(transferid[oa]|remanejad[oa]|desistente|evadid[oa]|cancelad[oa]|falecid[oa]|matriculad[oa]|ativ[oa]|inativ[oa]|cursando|aprovad[oa]|reprovad[oa]|classificad[oa]|reclassificad[oa])(\(s\)|[s\/a\(\)])*$/i;
+  const transferredStatus = /^(transferid[oa]|remanejad[oa]|desistente|evadid[oa]|cancelad[oa]|falecid[oa])(\(s\)|[s\/a\(\)])*$/i;
+  const headerKeywords = /^(alunos\b|\d+\s*presentes\b|total\b|turma\b|profess[oa]r\b|data\b|matr[íi]cula\b|n[ºo°ª]?\b|nome\b|estudante\b|situa[çc][ãa]o\b|status\b|a[çc][õo]es\b|op[çc][õo]es\b|\d+[º°ª]?\s*(ano|s[ée]rie|etapa|per[íi]odo|turma|m[óo]dulo|termo)\b)/i;
+  const photoNoiseKeywords = /^(foto|avatar|imagem|foto\s+de\s+perfil|sem\s+foto|sem\s+avatar)$/i;
+
+  for (const line of lines) {
+    // 1. Check if line has no alphabetic letters (e.g. standalone numbers like "1", "18", "19", dashes, dates)
+    if (!/[a-zA-ZáàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]/i.test(line)) {
+      continue;
+    }
+
+    // 2. Check if line is a standalone status keyword (e.g. "Transferido")
+    if (statusKeywords.test(line)) {
+      if (excludeTransferred && transferredStatus.test(line)) {
+        // If the preceding accepted student was followed by "Transferido", remove them
+        if (names.length > 0) {
+          const lastRemoved = names.pop();
+          while (names.length > 0 && names[names.length - 1].toLowerCase() === lastRemoved?.toLowerCase()) {
+            names.pop();
+          }
+        }
+      }
+      continue;
+    }
+
+    // 3. Check if line is UI / Header noise or standalone photo label
+    if (headerKeywords.test(line) || photoNoiseKeywords.test(line)) {
+      continue;
+    }
+
+    // 4. Check if the line contains transferred keywords inline
+    if (excludeTransferred && /\b(transferid[oa]|remanejad[oa]|desistente|evadid[oa]|cancelad[oa]|falecid[oa])(\(s\)|[s\/a\(\)])*\b/i.test(line)) {
+      continue;
+    }
+
+    // 5. Clean line
+    let cleaned = line
+      // Remove image alt prefixes e.g. "Foto de ", "Foto do aluno ", "Avatar de ", "Imagem: "
+      .replace(/^(foto|avatar|imagem|perfil)\s+(d[eoa]s?|d[oa]\(a\)|de\(a\)|do\s+aluno|da\s+aluna|do\s+estudante|da\s+estudante)?\s*[:\-]?\s*/i, '')
+      // Remove leading numbers, ordinals, bullets e.g. "1\t", "01 - ", "1. ", "1º ", "#1 "
+      .replace(/^#?\s*\d+[º°ª]?[\s\.\-\)\/:\t]+/, '')
+      // Remove pipe characters
+      .replace(/\|/g, '')
+      // Remove tab and following content (if tabular attendance data was pasted)
+      .replace(/\t.*/g, '')
+      // Remove (PCD), [PCD], (NEE), etc.
+      .replace(/\s*[\(\[]?\s*(PCD|NEE|AEE|DEFICIENTE)\s*[\)\]]?/gi, ' ')
+      // Clean up whitespace
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // 6. Validate cleaned candidate name
+    if (
+      cleaned.length < 2 ||
+      !/[a-zA-ZáàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]{2,}/i.test(cleaned) ||
+      statusKeywords.test(cleaned) ||
+      headerKeywords.test(cleaned) ||
+      photoNoiseKeywords.test(cleaned)
+    ) {
+      continue;
+    }
+
+    names.push(cleaned);
+  }
+
+  // Deduplicate while preserving order
+  const uniqueNames: string[] = [];
+  const seen = new Set<string>();
+  for (const name of names) {
+    const lower = name.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      uniqueNames.push(name);
+    }
+  }
+
+  return uniqueNames;
+}

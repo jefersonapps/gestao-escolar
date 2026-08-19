@@ -8,7 +8,6 @@ import { SaevService } from '@/services/saev';
 import { SaevFilterForm, type SaevFilters } from '@/components/reports/SaevFilterForm';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -29,7 +28,6 @@ import {
   BookOpen,
   CheckCircle2,
   RefreshCw,
-  Info,
   FolderOpen,
   School,
   Image
@@ -257,7 +255,7 @@ export function CertificatesControl() {
   // State: Student Data Source
   const [sourceType, setSourceType] = useState<'saev' | 'local' | 'manual'>('saev');
   const [selectedClassId, setSelectedClassId] = useState<string>('');
-  const [customTextReplicated, setCustomTextReplicated] = useState<string>(
+  const [customTextReplicated] = useState<string>(
     'Pelo empenho e excelente resultado obtido.'
   );
 
