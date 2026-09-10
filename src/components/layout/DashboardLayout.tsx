@@ -13,7 +13,8 @@ import {
     TableProperties,
     BarChart3,
     AlertTriangle,
-    Award
+    Award,
+    CalendarDays
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -57,6 +58,7 @@ const sidebarItems = [
   { id: 'charts', label: 'Gráficos', icon: BarChart3 },
   { id: 'reports', label: 'Relatórios', icon: clipboardListIcon },
   { id: 'certificates', label: 'Certificados', icon: Award },
+  { id: 'agenda', label: 'Agenda SGEDU', icon: CalendarDays },
 ];
 
 export function DashboardLayout({ children, activeTab, onTabChange }: DashboardLayoutProps) {
@@ -235,9 +237,9 @@ export function DashboardLayout({ children, activeTab, onTabChange }: DashboardL
                 </div>
             </main>
         ) : (
-            <ScrollArea className="flex-1">
-                <main className="p-6 md:p-8 min-h-full flex flex-col">
-                    <div className="max-w-7xl mx-auto space-y-6 flex-1 flex flex-col w-full">
+            <ScrollArea className="flex-1 w-full min-w-0">
+                <main className="p-4 sm:p-6 md:p-8 min-h-full flex flex-col w-full min-w-0">
+                    <div className="max-w-7xl mx-auto space-y-6 flex-1 flex flex-col w-full min-w-0">
                         {children}
                     </div>
                 </main>
