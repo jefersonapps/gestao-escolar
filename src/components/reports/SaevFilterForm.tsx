@@ -47,6 +47,7 @@ interface SaevFilterFormProps {
     onChange?: (data: SaevFilters) => void;
     showReportOptions?: boolean;
     submitButtonLabel?: string;
+    submitButtonClassName?: string;
 }
 
 const DEFAULT_FILTERS: SaevFilters = {
@@ -76,7 +77,8 @@ export function SaevFilterForm({
     restoreToken = 0, 
     onChange,
     showReportOptions = true,
-    submitButtonLabel = 'Iniciar Geração'
+    submitButtonLabel = 'Iniciar Geração',
+    submitButtonClassName,
 }: SaevFilterFormProps) {
     const { service } = useExternalAuth('saev');
     const saevService = service as SaevService;
@@ -247,7 +249,7 @@ export function SaevFilterForm({
                 onValueChange={(val) => handleValueChange(name, val)}
                 disabled={loadingFields[name] || !isReadyToLoad(name)}
             >
-                <SelectTrigger id={name} className="border-green-100 focus:ring-green-600 w-full overflow-hidden">
+                <SelectTrigger id={name} className="border-border focus:ring-green-600 w-full overflow-hidden bg-background">
                     <div className="truncate text-left w-full">
                         <SelectValue placeholder={placeholder} />
                     </div>
@@ -279,12 +281,12 @@ export function SaevFilterForm({
     return (
         <form onSubmit={handleSubmit(handleSubmitWithLabels)} className="space-y-6">
             {!hasToken && (
-                <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 text-amber-900 dark:text-amber-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
-                        <LogIn className="w-5 h-5 text-amber-600 shrink-0" />
+                        <LogIn className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
                         <div className="text-xs">
                             <p className="font-semibold text-sm">Sessão do SAEV Desconectada</p>
-                            <p className="text-amber-700">Faça login no SAEV para carregar automaticamente os filtros de Série, Ano, Escola e Turma.</p>
+                            <p className="text-amber-700 dark:text-amber-300">Faça login no SAEV para carregar automaticamente os filtros de Série, Ano, Escola e Turma.</p>
                         </div>
                     </div>
                     <Button 
@@ -318,24 +320,24 @@ export function SaevFilterForm({
 
             {/* Report Format & Slide Customization Section (Shown only for presentation reports) */}
             {showReportOptions && (
-                <div className="rounded-xl border border-green-100 bg-green-50/40 p-5 space-y-4">
-                    <div className="flex items-center gap-2 text-green-900 font-semibold text-base">
-                        <SlidersHorizontal className="w-5 h-5 text-green-700" />
+                <div className="rounded-xl border border-green-100 dark:border-green-800/30 bg-green-50/40 dark:bg-green-950/20 p-5 space-y-4">
+                    <div className="flex items-center gap-2 text-green-900 dark:text-green-200 font-semibold text-base">
+                        <SlidersHorizontal className="w-5 h-5 text-green-700 dark:text-green-400" />
                         <span>Configuração do Relatório & Conteúdo</span>
                     </div>
 
                     {/* Output Format & PDF Orientation Selectors */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-2 border-b border-green-200/60">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-2 border-b border-green-200/60 dark:border-green-800/40">
                         <div className="space-y-1.5">
-                            <Label className="text-xs font-semibold text-gray-800 flex items-center gap-1.5">
-                                <FileSpreadsheet className="w-3.5 h-3.5 text-green-700" />
+                            <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                                <FileSpreadsheet className="w-3.5 h-3.5 text-green-700 dark:text-green-400" />
                                 <span>Formato de Saída</span>
                             </Label>
                             <Select 
                                 value={values.outputType || 'pptx'} 
                                 onValueChange={(val: 'pptx' | 'pdf' | 'both') => setValue('outputType', val)}
                             >
-                                <SelectTrigger className="bg-white text-xs h-9">
+                                <SelectTrigger className="bg-background text-xs h-9">
                                     <SelectValue placeholder="Selecione o formato" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -348,15 +350,15 @@ export function SaevFilterForm({
 
                         {(values.outputType === 'pdf' || values.outputType === 'both') && (
                             <div className="space-y-1.5">
-                                <Label className="text-xs font-semibold text-gray-800 flex items-center gap-1.5">
-                                    <Compass className="w-3.5 h-3.5 text-blue-700" />
+                                <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                                    <Compass className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
                                     <span>Orientação do PDF</span>
                                 </Label>
                                 <Select 
                                     value={values.pdfOrientation || 'portrait'} 
                                     onValueChange={(val: 'portrait' | 'landscape') => setValue('pdfOrientation', val)}
                                 >
-                                    <SelectTrigger className="bg-white text-xs h-9">
+                                    <SelectTrigger className="bg-background text-xs h-9">
                                         <SelectValue placeholder="Selecione a orientação" />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -372,15 +374,15 @@ export function SaevFilterForm({
                         Selecione quais dados e seções devem ser incluídos na apresentação/relatório:
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
-                        <label className="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-100 shadow-xs cursor-pointer hover:border-green-300 transition-colors">
+                        <label className="flex items-start gap-3 p-3 rounded-lg bg-card border border-border shadow-xs cursor-pointer hover:border-green-300 dark:hover:border-green-600 transition-colors">
                             <Checkbox
                                 checked={values.includeFluency !== false}
                                 onCheckedChange={(checked) => setValue('includeFluency', !!checked)}
                                 className="mt-0.5"
                             />
                             <div className="space-y-0.5">
-                                <div className="flex items-center gap-1.5 font-medium text-xs text-gray-900">
-                                    <BarChart2 className="w-3.5 h-3.5 text-green-600" />
+                                <div className="flex items-center gap-1.5 font-medium text-xs text-foreground">
+                                    <BarChart2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
                                     <span>Fluência Leitora</span>
                                 </div>
                                 <p className="text-[11px] text-muted-foreground leading-tight">
@@ -465,7 +467,7 @@ export function SaevFilterForm({
                     type="submit" 
                     size="lg" 
                     disabled={isLoading || (!values.turma && !values.escola && !values.serie)} 
-                    className="bg-green-700 hover:bg-green-800 gap-2 min-w-50 shadow-md"
+                    className={submitButtonClassName || "bg-green-700 hover:bg-green-800 gap-2 min-w-50 shadow-md"}
                 >
                     {isLoading ? (
                         <>

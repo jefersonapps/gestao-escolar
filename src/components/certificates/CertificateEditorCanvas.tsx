@@ -17,7 +17,16 @@ import {
   Eye, 
   Edit3,
   Move,
-  Sparkles
+  Sparkles,
+  User,
+  Trophy,
+  GraduationCap,
+  FileText,
+  BookOpen,
+  Calculator,
+  BookmarkCheck,
+  Calendar,
+  Award
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
@@ -43,14 +52,14 @@ const SAMPLE_STUDENT_DEFAULT: CertificateStudentData = {
 };
 
 const VARIABLE_BADGES = [
-  { key: '{nome_aluno}', label: 'Nome do Aluno', icon: '👤', defaultText: '{nome_aluno}' },
-  { key: '{colocacao}', label: 'Colocação (1º, 2º...)', icon: '🏆', defaultText: 'em {colocacao}' },
-  { key: '{turma}', label: 'Turma / Série', icon: '🏫', defaultText: 'Turma: {turma}' },
-  { key: '{avaliacao}', label: 'Avaliação', icon: '📝', defaultText: 'no(a) {avaliacao}' },
-  { key: '{nota_portugues}', label: '% Português', icon: '📚', defaultText: 'Português: {nota_portugues}' },
-  { key: '{nota_matematica}', label: '% Matemática', icon: '📐', defaultText: 'Matemática: {nota_matematica}' },
-  { key: '{nivel_leitura}', label: 'Fluência Leitora', icon: '📖', defaultText: 'Leitura: {nivel_leitura}' },
-  { key: '{data}', label: 'Data Atual', icon: '📅', defaultText: 'Data: {data}' },
+  { key: '{nome_aluno}', label: 'Nome do Aluno', Icon: User, defaultText: '{nome_aluno}' },
+  { key: '{colocacao}', label: 'Colocação (1º, 2º...)', Icon: Trophy, defaultText: 'em {colocacao}' },
+  { key: '{turma}', label: 'Turma / Série', Icon: GraduationCap, defaultText: '{turma}' },
+  { key: '{avaliacao}', label: 'Avaliação', Icon: FileText, defaultText: 'no(a) {avaliacao}' },
+  { key: '{nota_portugues}', label: '% Português', Icon: BookOpen, defaultText: 'Português: {nota_portugues}' },
+  { key: '{nota_matematica}', label: '% Matemática', Icon: Calculator, defaultText: 'Matemática: {nota_matematica}' },
+  { key: '{nivel_leitura}', label: 'Fluência Leitora', Icon: BookmarkCheck, defaultText: 'Leitura: {nivel_leitura}' },
+  { key: '{data}', label: 'Data Atual', Icon: Calendar, defaultText: 'Data: {data}' },
 ];
 
 export const CertificateEditorCanvas: React.FC<CertificateEditorCanvasProps> = ({
@@ -310,10 +319,10 @@ export const CertificateEditorCanvas: React.FC<CertificateEditorCanvasProps> = (
   return (
     <div className="space-y-4">
       {/* Top Action Bar & Variable Inserts */}
-      <div className="bg-card border rounded-lg p-4 shadow-sm space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+      <div className="bg-card border border-border rounded-lg p-4 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-amber-500" />
+            <Sparkles className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Variáveis Dinâmicas (Clique para Inserir):</span>
           </div>
 
@@ -328,7 +337,7 @@ export const CertificateEditorCanvas: React.FC<CertificateEditorCanvasProps> = (
               {isPreview ? 'Voltar para Edição' : 'Pré-visualizar com Exemplo'}
             </Button>
 
-            <Button size="sm" onClick={() => handleAddField('Certificado', '')} className="gap-2 bg-primary">
+            <Button size="sm" onClick={() => handleAddField('Certificado', '')} className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
               <Plus className="w-4 h-4" />
               Adicionar Caixa de Texto
             </Button>
@@ -337,26 +346,29 @@ export const CertificateEditorCanvas: React.FC<CertificateEditorCanvasProps> = (
 
         {/* Variable Badges */}
         <div className="flex flex-wrap gap-2">
-          {VARIABLE_BADGES.map((badge) => (
-            <Badge
-              key={badge.key}
-              variant="secondary"
-              className="cursor-pointer hover:bg-amber-100 hover:text-amber-900 border border-amber-200 py-1.5 px-2.5 transition-colors gap-1.5 text-xs"
-              onClick={() => handleInsertVariable(badge)}
-              title={`Inserir ${badge.label} no certificado`}
-            >
-              <span>{badge.icon}</span>
-              <span className="font-medium">{badge.label}</span>
-              <Plus className="w-3 h-3 text-muted-foreground ml-1" />
-            </Badge>
-          ))}
+          {VARIABLE_BADGES.map((badge) => {
+            const IconComponent = badge.Icon;
+            return (
+              <Badge
+                key={badge.key}
+                variant="secondary"
+                className="cursor-pointer hover:bg-accent hover:text-accent-foreground border border-border py-1.5 px-2.5 transition-colors gap-1.5 text-xs bg-card"
+                onClick={() => handleInsertVariable(badge)}
+                title={`Inserir ${badge.label} no certificado`}
+              >
+                <IconComponent className="w-3.5 h-3.5 text-primary" />
+                <span className="font-medium text-foreground">{badge.label}</span>
+                <Plus className="w-3 h-3 text-muted-foreground ml-0.5" />
+              </Badge>
+            );
+          })}
         </div>
       </div>
 
       {/* Main Canvas & Field Format Controls Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Visual Canvas Area */}
-        <div className="lg:col-span-3 flex flex-col items-center justify-center bg-slate-900/5 p-4 rounded-xl border border-dashed relative overflow-hidden min-h-[420px]">
+        <div className="lg:col-span-3 flex flex-col items-center justify-center bg-muted/30 p-4 rounded-xl border border-border border-dashed relative overflow-hidden min-h-[420px]">
           <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1 font-medium">
             <Move className="w-3.5 h-3.5" />
             <span>Arraste o centro ou as bordas laterais das caixas. Pressione <b>Delete</b> para excluir.</span>
@@ -367,7 +379,7 @@ export const CertificateEditorCanvas: React.FC<CertificateEditorCanvasProps> = (
             ref={containerRef}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            className="relative w-full max-w-[840px] shadow-2xl rounded-lg overflow-hidden border bg-white select-none transition-shadow"
+            className="relative w-full max-w-[840px] shadow-2xl rounded-lg overflow-hidden border border-border bg-white select-none transition-shadow"
             style={{
               aspectRatio: isLandscape ? '1.414 / 1' : '0.707 / 1', // A4 ratio
             }}
@@ -380,9 +392,10 @@ export const CertificateEditorCanvas: React.FC<CertificateEditorCanvasProps> = (
                 className="w-full h-full object-cover absolute inset-0 pointer-events-none"
               />
             ) : (
-              <div className="w-full h-full absolute inset-0 flex flex-col items-center justify-center bg-slate-50 border-[12px] border-amber-600/30 p-8 text-center pointer-events-none">
-                <div className="w-full h-full border-2 border-dashed border-amber-700/20 flex flex-col items-center justify-center p-6">
-                  <div className="text-amber-700/20 text-6xl font-serif">★ ★ ★</div>
+              <div className="w-full h-full absolute inset-0 flex flex-col items-center justify-center bg-card border-[12px] border-primary/20 p-8 text-center pointer-events-none">
+                <div className="w-full h-full border-2 border-dashed border-primary/20 flex flex-col items-center justify-center p-6 text-muted-foreground">
+                  <Award className="w-16 h-16 text-primary/40 mb-2" />
+                  <span className="text-xs uppercase tracking-wider font-semibold text-foreground/80">Certificado de Reconhecimento</span>
                 </div>
               </div>
             )}
@@ -403,8 +416,8 @@ export const CertificateEditorCanvas: React.FC<CertificateEditorCanvasProps> = (
                   onMouseDown={(e) => handleMouseDown(e, field.id)}
                   className={`absolute cursor-move transition-all duration-75 flex items-center overflow-hidden ${
                     isSelected
-                      ? 'ring-2 ring-amber-500 ring-offset-1 bg-amber-500/10 z-20 rounded'
-                      : 'hover:ring-1 hover:ring-amber-400/60 z-10'
+                      ? 'ring-2 ring-primary ring-offset-1 bg-primary/10 z-20 rounded'
+                      : 'hover:ring-1 hover:ring-primary/50 z-10'
                   }`}
                   style={{
                     left: `${field.xPercent}%`,
@@ -689,7 +702,7 @@ export const CertificateEditorCanvas: React.FC<CertificateEditorCanvasProps> = (
           ) : (
             <div className="text-center py-8 text-muted-foreground text-xs space-y-2">
               <p>Clique em qualquer caixa de texto no certificado para alterar tamanho, cores e fontes.</p>
-              <p className="text-[11px] text-amber-600 font-medium">Ou clique nos botões de "Variáveis Dinâmicas" acima para adicionar novas informações.</p>
+              <p className="text-[11px] text-primary font-medium">Ou clique nos botões de "Variáveis Dinâmicas" acima para adicionar novas informações.</p>
             </div>
           )}
         </div>

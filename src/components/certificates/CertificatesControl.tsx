@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type { CertificateTemplate, CertificateStudentData, SaevRankingMode } from '@/types/certificates';
 import { CertificateEditorCanvas } from './CertificateEditorCanvas';
 import { generateCertificatesPdf } from '@/services/certificatePdfGenerator';
@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
@@ -30,8 +31,32 @@ import {
   RefreshCw,
   FolderOpen,
   School,
-  Image
+  GraduationCap,
+  LayoutTemplate,
+  Pencil,
+  Medal,
+  Star,
+  Check
 } from 'lucide-react';
+
+// Helper: Natural sort for Brazilian school class names (e.g. 1º Ano A, 1º Ano B, 2º Ano A, etc.)
+export const compareTurmas = (a: string, b: string): number => {
+  const normA = (a || '').trim();
+  const normB = (b || '').trim();
+
+  const matchA = normA.match(/\d+/);
+  const matchB = normB.match(/\d+/);
+
+  if (matchA && matchB) {
+    const valA = parseInt(matchA[0], 10);
+    const valB = parseInt(matchB[0], 10);
+    if (valA !== valB) {
+      return valA - valB;
+    }
+  }
+
+  return normA.localeCompare(normB, 'pt-BR', { numeric: true, sensitivity: 'base' });
+};
 
 // Helper: Load image from URL and convert to base64 data URL
 const loadImageAsBase64 = (url: string): Promise<string> => {
@@ -111,7 +136,7 @@ const createCertificadoPadraoTemplate = (bgImage: string): CertificateTemplate =
       placeholderKey: '{data}',
       xPercent: 20,
       yPercent: 79,
-      widthPercent: 20,
+      widthPercent: 25,
       heightPercent: 5,
       text: '{data}',
       fontSize: 20,
@@ -120,105 +145,20 @@ const createCertificadoPadraoTemplate = (bgImage: string): CertificateTemplate =
       color: '#1a365d',
       align: 'left',
     },
-  ],
-});
-
-const createGoldTemplate = (): CertificateTemplate => ({
-  id: 'template_gold',
-  name: 'Tradicional Dourado',
-  orientation: 'landscape',
-  bgImage: '',
-  customText: 'Pela excelente participação e dedicação nos estudos.',
-  fields: [
     {
-      id: 'f_title',
-      name: 'Título',
-      placeholderKey: '',
-      xPercent: 15,
-      yPercent: 12,
-      widthPercent: 70,
-      heightPercent: 15,
-      text: 'CERTIFICADO DE MÉRITO',
-      fontSize: 32,
+      id: 'f_turma',
+      name: 'Turma',
+      placeholderKey: '{turma}',
+      xPercent: 62,
+      yPercent: 79,
+      widthPercent: 22,
+      heightPercent: 5,
+      text: '{turma}',
+      fontSize: 20,
       fontFamily: 'times',
       fontWeight: 'bold',
-      color: '#92400e',
-      align: 'center',
-    },
-    {
-      id: 'f_subtitle',
-      name: 'Subtítulo',
-      placeholderKey: '',
-      xPercent: 15,
-      yPercent: 28,
-      widthPercent: 70,
-      heightPercent: 8,
-      text: 'Conferimos o presente certificado ao(à) aluno(a)',
-      fontSize: 16,
-      fontFamily: 'helvetica',
-      fontWeight: 'normal',
-      color: '#334155',
-      align: 'center',
-    },
-    {
-      id: 'f_student',
-      name: 'Nome do Aluno',
-      placeholderKey: '{nome_aluno}',
-      xPercent: 10,
-      yPercent: 38,
-      widthPercent: 80,
-      heightPercent: 14,
-      text: '{nome_aluno}',
-      fontSize: 26,
-      fontFamily: 'times',
-      fontWeight: 'bold',
-      color: '#0f172a',
-      align: 'center',
-    },
-    {
-      id: 'f_reason',
-      name: 'Motivo / Avaliação',
-      placeholderKey: '{avaliacao}',
-      xPercent: 12,
-      yPercent: 54,
-      widthPercent: 76,
-      heightPercent: 12,
-      text: 'Pelo excelente desempenho em {colocacao} no(a) {avaliacao}.',
-      fontSize: 16,
-      fontFamily: 'helvetica',
-      fontWeight: 'normal',
-      color: '#334155',
-      align: 'center',
-    },
-    {
-      id: 'f_custom',
-      name: 'Texto Livre',
-      placeholderKey: '{texto_personalizado}',
-      xPercent: 15,
-      yPercent: 68,
-      widthPercent: 70,
-      heightPercent: 10,
-      text: '{texto_personalizado}',
-      fontSize: 14,
-      fontFamily: 'helvetica',
-      fontWeight: 'italic',
-      color: '#475569',
-      align: 'center',
-    },
-    {
-      id: 'f_date',
-      name: 'Data',
-      placeholderKey: '{data}',
-      xPercent: 60,
-      yPercent: 83,
-      widthPercent: 30,
-      heightPercent: 8,
-      text: 'Emissão: {data}',
-      fontSize: 12,
-      fontFamily: 'helvetica',
-      fontWeight: 'normal',
-      color: '#64748b',
-      align: 'right',
+      color: '#1a365d',
+      align: 'left',
     },
   ],
 });
@@ -232,24 +172,41 @@ export function CertificatesControl() {
   // State: Active Step
   const [activeStep, setActiveStep] = useState<string>('template');
 
-  // State: Template & Canvas
+  // State: Template & Canvas (Default: Certificado de Reconhecimento)
   const [template, setTemplate] = useState<CertificateTemplate>(createCertificadoPadraoTemplate('/images/certificado_padrao.png'));
   const [isLoadingPreset, setIsLoadingPreset] = useState(false);
 
-  // Handler: Select the Certificado Padrão preset
-  const handleSelectCertificadoPadrao = async () => {
-    setIsLoadingPreset(true);
-    try {
-      const base64 = await loadImageAsBase64('/images/certificado_padrao.png');
-      setTemplate(createCertificadoPadraoTemplate(base64));
-      setActiveStep('canvas');
-      toast.success('Modelo "Certificado de Reconhecimento" carregado! Avancei para o passo 2.');
-    } catch (err: any) {
-      console.error('Error loading preset image:', err);
-      toast.error('Erro ao carregar imagem do modelo padrão: ' + (err.message || String(err)));
-    } finally {
-      setIsLoadingPreset(false);
+  // Automatically pre-load the default Recognition Certificate base64 image on mount
+  useEffect(() => {
+    let isMounted = true;
+    loadImageAsBase64('/images/certificado_padrao.png')
+      .then((base64) => {
+        if (isMounted) {
+          setTemplate(createCertificadoPadraoTemplate(base64));
+        }
+      })
+      .catch((err) => {
+        console.warn('Erro ao pré-carregar imagem padrão do certificado:', err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Handler: Advance to Step 2 (Canvas), ensuring base64 image is 100% loaded and selected
+  const handleAdvanceToCanvas = async () => {
+    if (!template.bgImage || !template.bgImage.startsWith('data:image')) {
+      setIsLoadingPreset(true);
+      try {
+        const base64 = await loadImageAsBase64('/images/certificado_padrao.png');
+        setTemplate(createCertificadoPadraoTemplate(base64));
+      } catch (err: any) {
+        console.error('Erro ao carregar imagem padrão:', err);
+      } finally {
+        setIsLoadingPreset(false);
+      }
     }
+    setActiveStep('canvas');
   };
 
   // State: Student Data Source
@@ -266,6 +223,7 @@ export function CertificatesControl() {
   const [rankingMode, setRankingMode] = useState<SaevRankingMode>('all');
   const [readingLevelFilter, setReadingLevelFilter] = useState<string>('all');
   const [etapaFilter, setEtapaFilter] = useState<'all' | 'fund1' | 'fund2'>('all');
+  const [turmaFilter, setTurmaFilter] = useState<string>('all');
 
   // State: Selected Students for PDF Batch
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
@@ -560,11 +518,30 @@ export function CertificatesControl() {
     });
   }, [currentStudentsSource, etapaFilter]);
 
+  // Step 0.8: Available Turmas in current filtered etapa (sorted in pedagogical sequence)
+  const availableTurmas = useMemo(() => {
+    const turmasSet = new Set<string>();
+    etapaFilteredStudents.forEach((st) => {
+      if (st.turma && st.turma.trim()) {
+        turmasSet.add(st.turma.trim());
+      }
+    });
+    return Array.from(turmasSet).sort(compareTurmas);
+  }, [etapaFilteredStudents]);
+
+  // Step 0.9: Filter by selected Turma (or 'all' for all turmas)
+  const turmaFilteredStudents = useMemo(() => {
+    if (turmaFilter === 'all') return etapaFilteredStudents;
+    return etapaFilteredStudents.filter(
+      (st) => (st.turma || '').trim().toLowerCase() === turmaFilter.trim().toLowerCase()
+    );
+  }, [etapaFilteredStudents, turmaFilter]);
+
   // Step 1: Filter raw students by Reading Level
   const levelFilteredStudents = useMemo(() => {
-    if (readingLevelFilter === 'all') return etapaFilteredStudents;
+    if (readingLevelFilter === 'all') return turmaFilteredStudents;
 
-    return etapaFilteredStudents.filter((student) => {
+    return turmaFilteredStudents.filter((student) => {
       const rawLev = (student.nivel_leitura || '').trim();
       const levNorm = rawLev
         .normalize('NFD')
@@ -583,14 +560,51 @@ export function CertificatesControl() {
       }
       return levNorm === filterNorm || rawLev.toLowerCase() === readingLevelFilter.toLowerCase();
     });
-  }, [etapaFilteredStudents, readingLevelFilter]);
+  }, [turmaFilteredStudents, readingLevelFilter]);
 
-  // Step 2: Dynamically Calculate Dense Podium Ranking (1º, 2º, 3º...) for the Filtered Subset
-  const dynamicallyRankedStudents = useMemo(() => {
+  // Step 2: Compute both Standard Ranking and Top 3 per Turma (organized class by class)
+  const { dynamicallyRankedStudents, top3PorTurmaList } = useMemo(() => {
+    // A. Top 3 por Turma calculation
+    // Group levelFilteredStudents by Turma
+    const studentsByTurma = new Map<string, CertificateStudentData[]>();
+    levelFilteredStudents.forEach((st) => {
+      const t = (st.turma || 'Sem Turma').trim();
+      if (!studentsByTurma.has(t)) {
+        studentsByTurma.set(t, []);
+      }
+      studentsByTurma.get(t)!.push(st);
+    });
+
+    // Sort turmas in pedagogical order (e.g. 1º Ano A -> 1º Ano B -> 2º Ano A -> ...)
+    const sortedTurmaNames = Array.from(studentsByTurma.keys()).sort(compareTurmas);
+    const top3List: CertificateStudentData[] = [];
+
+    for (const turmaName of sortedTurmaNames) {
+      const turmaStudents = [...studentsByTurma.get(turmaName)!].sort(
+        (a, b) => (b.rawScore || 0) - (a.rawScore || 0)
+      );
+
+      let currentRank = 1;
+      const rankedTurmaStudents = turmaStudents.map((st, i) => {
+        if (i > 0 && (st.rawScore || 0) < (turmaStudents[i - 1].rawScore || 0)) {
+          currentRank++;
+        }
+        return {
+          ...st,
+          colocacao: `${currentRank}º Lugar`,
+          rankNumber: currentRank,
+        };
+      });
+
+      const top3OfThisTurma = rankedTurmaStudents.filter((st) => (st.rankNumber || 999) <= 3);
+      top3List.push(...top3OfThisTurma);
+    }
+
+    // B. Standard ranking (if turmaFilter !== 'all', it represents ranking within that selected class)
     const sorted = [...levelFilteredStudents].sort((a, b) => (b.rawScore || 0) - (a.rawScore || 0));
 
     let currentRank = 1;
-    return sorted.map((st, i) => {
+    const standardRanked = sorted.map((st, i) => {
       if (i > 0 && (st.rawScore || 0) < (sorted[i - 1].rawScore || 0)) {
         currentRank++;
       }
@@ -600,6 +614,11 @@ export function CertificatesControl() {
         rankNumber: currentRank,
       };
     });
+
+    return {
+      dynamicallyRankedStudents: standardRanked,
+      top3PorTurmaList: top3List,
+    };
   }, [levelFilteredStudents]);
 
   // Step 3: Counts per filter mode for active subset
@@ -619,23 +638,33 @@ export function CertificatesControl() {
       all: dynamicallyRankedStudents.length,
       top1,
       top3,
-      top5
+      top5,
+      top3_por_turma: top3PorTurmaList.length,
     };
-  }, [dynamicallyRankedStudents]);
+  }, [dynamicallyRankedStudents, top3PorTurmaList]);
 
-  // Step 4: Filter by Ranking Mode (top1, top3, top5, all)
+  // Step 4: Filter by Ranking Mode (all, top1, top3, top5, top3_por_turma)
   const filteredStudents = useMemo(() => {
+    if (rankingMode === 'top3_por_turma') {
+      return top3PorTurmaList;
+    }
+
     return dynamicallyRankedStudents.filter((student) => {
       if (rankingMode === 'top1') return student.rankNumber === 1;
       if (rankingMode === 'top3') return (student.rankNumber || 999) <= 3;
       if (rankingMode === 'top5') return (student.rankNumber || 999) <= 5;
       return true;
     });
-  }, [dynamicallyRankedStudents, rankingMode]);
+  }, [dynamicallyRankedStudents, top3PorTurmaList, rankingMode]);
 
-  // Final List of Students selected for PDF generation
+  // Sync selection when filteredStudents change
+  useEffect(() => {
+    setSelectedStudentIds(new Set(filteredStudents.map((s) => s.id)));
+  }, [filteredStudents]);
+
+  // Final List of Students selected for PDF generation (strictly preserves sequence)
   const activeStudentsForPdf = useMemo(() => {
-    return filteredStudents.filter((s) => selectedStudentIds.size === 0 || selectedStudentIds.has(s.id));
+    return filteredStudents.filter((s) => selectedStudentIds.has(s.id));
   }, [filteredStudents, selectedStudentIds]);
 
   // Toggle Individual Student Selection
@@ -697,9 +726,9 @@ export function CertificatesControl() {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-card border rounded-xl p-6 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-card border border-border rounded-xl p-6 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600">
+          <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
             <Award className="w-7 h-7" />
           </div>
           <div>
@@ -713,123 +742,115 @@ export function CertificatesControl() {
 
       {/* Main Wizard Navigation Tabs */}
       <Tabs value={activeStep} onValueChange={setActiveStep} className="w-full">
-        <TabsList className="grid grid-cols-2 md:grid-cols-4 w-full p-1.5 bg-slate-200/70 dark:bg-slate-800 rounded-2xl border border-slate-300/60 dark:border-slate-700 gap-1.5 group-data-[orientation=horizontal]/tabs:h-auto">
-          <TabsTrigger value="template" className="h-11 py-2 px-3 text-xs md:text-sm font-bold rounded-xl transition-all data-[state=active]:bg-white data-[state=active]:text-amber-900 data-[state=active]:shadow-md data-[state=active]:border-slate-200 text-slate-600 hover:text-slate-900 gap-2 border border-transparent">
-            <span>🎨</span> 1. Modelo de Fundo
+        <TabsList className="grid grid-cols-2 md:grid-cols-4 w-full p-1 bg-muted/60 rounded-xl border border-border gap-1 group-data-[orientation=horizontal]/tabs:h-auto">
+          <TabsTrigger value="template" className="h-10 py-2 px-3 text-xs md:text-sm font-semibold rounded-lg transition-all data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border text-muted-foreground hover:text-foreground gap-2">
+            <LayoutTemplate className="w-4 h-4 text-primary" />
+            <span>1. Modelo de Fundo</span>
           </TabsTrigger>
-          <TabsTrigger value="canvas" className="h-11 py-2 px-3 text-xs md:text-sm font-bold rounded-xl transition-all data-[state=active]:bg-white data-[state=active]:text-amber-900 data-[state=active]:shadow-md data-[state=active]:border-slate-200 text-slate-600 hover:text-slate-900 gap-2 border border-transparent">
-            <span>✏️</span> 2. Desenhar Caixas de Texto
+          <TabsTrigger value="canvas" className="h-10 py-2 px-3 text-xs md:text-sm font-semibold rounded-lg transition-all data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border text-muted-foreground hover:text-foreground gap-2">
+            <Pencil className="w-4 h-4 text-primary" />
+            <span>2. Desenhar Caixas de Texto</span>
           </TabsTrigger>
-          <TabsTrigger value="students" className="h-11 py-2 px-3 text-xs md:text-sm font-bold rounded-xl transition-all data-[state=active]:bg-white data-[state=active]:text-amber-900 data-[state=active]:shadow-md data-[state=active]:border-slate-200 text-slate-600 hover:text-slate-900 gap-2 border border-transparent">
-            <span>👥</span> 3. Alunos & Ranking SAEV
+          <TabsTrigger value="students" className="h-10 py-2 px-3 text-xs md:text-sm font-semibold rounded-lg transition-all data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border text-muted-foreground hover:text-foreground gap-2">
+            <Users className="w-4 h-4 text-primary" />
+            <span>3. Alunos & Ranking SAEV</span>
           </TabsTrigger>
-          <TabsTrigger value="export" className="h-11 py-2 px-3 text-xs md:text-sm font-bold rounded-xl transition-all data-[state=active]:bg-white data-[state=active]:text-amber-900 data-[state=active]:shadow-md data-[state=active]:border-slate-200 text-slate-600 hover:text-slate-900 gap-2 border border-transparent">
-            <span>📄</span> 4. Gerar e Baixar PDF
+          <TabsTrigger value="export" className="h-10 py-2 px-3 text-xs md:text-sm font-semibold rounded-lg transition-all data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border text-muted-foreground hover:text-foreground gap-2">
+            <FileDown className="w-4 h-4 text-primary" />
+            <span>4. Gerar e Baixar PDF</span>
           </TabsTrigger>
         </TabsList>
 
         {/* STEP 1: BACKGROUND TEMPLATE */}
         <TabsContent value="template" className="mt-6 space-y-6">
-          <Card className="rounded-xl border shadow-sm">
+          <Card className="rounded-xl border border-border shadow-sm bg-card">
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Upload className="w-5 h-5 text-primary" />
-                Upload de Imagem de Certificado ou Escolha de Modelo
+              <CardTitle className="text-lg flex items-center gap-2 text-foreground">
+                <LayoutTemplate className="w-5 h-5 text-primary" />
+                Modelo de Fundo do Certificado
               </CardTitle>
               <CardDescription>
-                Suba o arquivo de imagem do seu próprio certificado (PNG ou JPG) ou utilize nosso modelo padrão pré-configurado.
+                O modelo oficial "Certificado de Reconhecimento" já está selecionado e pré-configurado por padrão. Você também pode enviar uma arte própria caso prefira.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Custom Upload Button */}
-              <div className="border-2 border-dashed border-primary/30 hover:border-primary rounded-xl p-8 text-center transition-colors bg-primary/5 flex flex-col items-center justify-center space-y-3">
-                <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                  <Upload className="w-7 h-7" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-sm">Subir Minha Imagem de Certificado</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">Selecione uma imagem (PNG, JPG, JPEG) para ser a arte de fundo.</p>
-                </div>
-                <Label htmlFor="bg-upload-input" className="cursor-pointer">
-                  <Button variant="default" size="sm" asChild className="gap-2">
-                    <span>
-                      <Upload className="w-4 h-4" /> Selecionar Imagem do Computador
-                    </span>
-                  </Button>
-                </Label>
-                <input
-                  id="bg-upload-input"
-                  type="file"
-                  accept="image/*"
-                  onChange={handleBgUpload}
-                  className="hidden"
-                />
-              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
+                {/* Card do Modelo Padrão Selecionado */}
+                <div className="border-2 border-primary/40 bg-card rounded-xl p-5 flex flex-col justify-between shadow-xs">
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 gap-1.5 text-xs font-semibold">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Modelo Selecionado por Padrão
+                      </Badge>
+                      <span className="text-xs text-muted-foreground font-medium">A4 Paisagem</span>
+                    </div>
 
-              {/* Preset Selection Cards */}
-              <div className="space-y-3">
-                <Label className="text-sm font-semibold">Ou Selecione um Modelo Pré-desenhado:</Label>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Preset 1: Certificado de Reconhecimento (imagem padrão) */}
-                  <div
-                    onClick={handleSelectCertificadoPadrao}
-                    className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${template.id === 'template_certificado_padrao'
-                      ? 'border-blue-600 bg-blue-50/50 shadow-md ring-2 ring-blue-500/20'
-                      : 'hover:border-blue-300 bg-card'
-                      } ${isLoadingPreset ? 'opacity-60 pointer-events-none' : ''}`}
-                  >
-                    <div className="h-28 rounded-md border-2 border-blue-700/30 bg-slate-50 flex items-center justify-center p-1 mb-3 overflow-hidden">
+                    <div className="h-44 rounded-lg border border-border bg-muted/20 flex items-center justify-center p-2 mb-3 overflow-hidden shadow-inner">
                       <img
                         src="/images/certificado_padrao.png"
                         alt="Certificado de Reconhecimento"
                         className="h-full w-full object-contain rounded"
                       />
                     </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <Image className="w-3.5 h-3.5 text-blue-700" />
-                        <span className="font-semibold text-xs">Certificado de Reconhecimento</span>
-                      </div>
-                      {template.id === 'template_certificado_padrao' && (
-                        <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                      )}
-                    </div>
-                    {isLoadingPreset && (
-                      <div className="text-[10px] text-blue-600 mt-1.5 flex items-center gap-1">
-                        <RefreshCw className="w-3 h-3 animate-spin" /> Carregando modelo...
-                      </div>
-                    )}
+
+                    <h3 className="font-bold text-sm text-foreground">Certificado de Reconhecimento</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Modelo com arte oficial de mérito escolar, brasão e caixas de texto pré-posicionadas (Aluno, Avaliação, Colocação e Data).
+                    </p>
                   </div>
 
-                  {/* Preset 2: Modelo Dourado Tradicional */}
-                  <div
-                    onClick={() => {
-                      setTemplate(createGoldTemplate());
-                      setActiveStep('canvas');
-                      toast.success('Modelo selecionado! Avancei para o passo 2 para desenhar as caixas de texto.');
-                    }}
-                    className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${template.id === 'template_gold' && !template.bgImage
-                      ? 'border-amber-500 bg-amber-50/50 shadow-md ring-2 ring-amber-500/20'
-                      : 'hover:border-amber-300 bg-card'
-                      }`}
-                  >
-                    <div className="h-28 rounded-md border-2 border-amber-600/30 bg-slate-50 flex flex-col items-center justify-center p-2 mb-3 text-center">
-                      <div className="text-amber-800 font-serif text-xs font-bold">CERTIFICADO DOURADO</div>
-                      <div className="text-[9px] text-slate-500 mt-1">Borda Tradicional em Ouro</div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-xs">Modelo Dourado Tradicional</span>
-                      {template.id === 'template_gold' && !template.bgImage && (
-                        <CheckCircle2 className="w-4 h-4 text-amber-600" />
-                      )}
-                    </div>
+                  <div className="pt-3 mt-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground font-medium">
+                    <span className="flex items-center gap-1.5 text-foreground font-semibold">
+                      <Check className="w-4 h-4 text-primary" /> Pronto para uso
+                    </span>
+                    <span>Passo 1 concluído</span>
                   </div>
+                </div>
+
+                {/* Card de Upload de Arte Personalizada */}
+                <div className="border border-dashed border-border hover:border-primary/40 rounded-xl p-6 text-center transition-all bg-card flex flex-col items-center justify-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center text-foreground">
+                    <Upload className="w-7 h-7 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-sm text-foreground">Subir Imagem Personalizada</h3>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
+                      Se você possui a imagem do certificado da sua escola (PNG ou JPG), selecione o arquivo para usar como fundo.
+                    </p>
+                  </div>
+                  <Label htmlFor="bg-upload-input" className="cursor-pointer">
+                    <Button variant="outline" size="sm" asChild className="gap-2 border-border hover:bg-accent text-foreground">
+                      <span>
+                        <Upload className="w-4 h-4 text-primary" /> Selecionar Imagem do Computador
+                      </span>
+                    </Button>
+                  </Label>
+                  <input
+                    id="bg-upload-input"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleBgUpload}
+                    className="hidden"
+                  />
                 </div>
               </div>
 
-              <div className="flex justify-end pt-4 border-t">
-                <Button onClick={() => setActiveStep('canvas')} className="gap-2 bg-amber-600 hover:bg-amber-700">
-                  Avançar para Desenhar Caixas de Texto &rarr;
+              <div className="flex justify-end pt-4 border-t border-border">
+                <Button 
+                  onClick={handleAdvanceToCanvas} 
+                  disabled={isLoadingPreset}
+                  className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-sm"
+                >
+                  {isLoadingPreset ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Carregando modelo...
+                    </>
+                  ) : (
+                    <>
+                      Avançar para Desenhar Caixas de Texto &rarr;
+                    </>
+                  )}
                 </Button>
               </div>
             </CardContent>
@@ -843,11 +864,11 @@ export function CertificatesControl() {
             onChangeTemplate={setTemplate}
             sampleStudent={filteredStudents[0] || undefined}
           />
-          <div className="flex justify-between items-center pt-4 border-t">
+          <div className="flex justify-between items-center pt-4 border-t border-border">
             <Button variant="outline" onClick={() => setActiveStep('template')}>
               &larr; Voltar para Modelo
             </Button>
-            <Button onClick={() => setActiveStep('students')} className="gap-2 bg-amber-600 hover:bg-amber-700">
+            <Button onClick={() => setActiveStep('students')} className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-sm">
               Avançar para Seleção de Alunos & SAEV &rarr;
             </Button>
           </div>
@@ -856,7 +877,7 @@ export function CertificatesControl() {
         {/* STEP 3: STUDENTS & SAEV RANKING */}
         <TabsContent value="students" className="mt-6 space-y-6">
           {/* Data Source Switcher */}
-          <Card>
+          <Card className="border-border">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Users className="w-5 h-5 text-primary" />
@@ -870,13 +891,14 @@ export function CertificatesControl() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div
                   onClick={() => setSourceType('saev')}
-                  className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${sourceType === 'saev'
-                    ? 'border-amber-500 bg-amber-50/50 shadow-md ring-2 ring-amber-500/20'
-                    : 'hover:border-amber-300 bg-card'
-                    }`}
+                  className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
+                    sourceType === 'saev'
+                      ? 'border-primary bg-primary/5 shadow-xs'
+                      : 'border-border hover:border-muted-foreground/30 bg-card'
+                  }`}
                 >
-                  <div className="flex items-center gap-2 font-bold text-sm text-amber-800 mb-1">
-                    <Trophy className="w-4 h-4 text-amber-600" />
+                  <div className="flex items-center gap-2 font-bold text-sm text-foreground mb-1">
+                    <Trophy className="w-4 h-4 text-primary" />
                     Resultados SAEV (Com Ranking)
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -886,12 +908,13 @@ export function CertificatesControl() {
 
                 <div
                   onClick={() => setSourceType('local')}
-                  className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${sourceType === 'local'
-                    ? 'border-amber-500 bg-amber-50/50 shadow-md ring-2 ring-amber-500/20'
-                    : 'hover:border-amber-300 bg-card'
-                    }`}
+                  className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
+                    sourceType === 'local'
+                      ? 'border-primary bg-primary/5 shadow-xs'
+                      : 'border-border hover:border-muted-foreground/30 bg-card'
+                  }`}
                 >
-                  <div className="flex items-center gap-2 font-bold text-sm text-slate-800 mb-1">
+                  <div className="flex items-center gap-2 font-bold text-sm text-foreground mb-1">
                     <BookOpen className="w-4 h-4 text-primary" />
                     Turmas do Sistema Local
                   </div>
@@ -902,13 +925,14 @@ export function CertificatesControl() {
 
                 <div
                   onClick={() => setSourceType('manual')}
-                  className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${sourceType === 'manual'
-                    ? 'border-amber-500 bg-amber-50/50 shadow-md ring-2 ring-amber-500/20'
-                    : 'hover:border-amber-300 bg-card'
-                    }`}
+                  className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
+                    sourceType === 'manual'
+                      ? 'border-primary bg-primary/5 shadow-xs'
+                      : 'border-border hover:border-muted-foreground/30 bg-card'
+                  }`}
                 >
-                  <div className="flex items-center gap-2 font-bold text-sm text-slate-800 mb-1">
-                    <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <div className="flex items-center gap-2 font-bold text-sm text-foreground mb-1">
+                    <Sparkles className="w-4 h-4 text-primary" />
                     Lista de Teste / Exemplo
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -917,15 +941,13 @@ export function CertificatesControl() {
                 </div>
               </div>
 
-
-
               {/* SAEV Integration & Filter Form */}
               {sourceType === 'saev' && (
-                <div className="space-y-6 pt-4 border-t">
+                <div className="space-y-6 pt-4 border-t border-border">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="font-bold text-base flex items-center gap-2">
-                        <Search className="w-4 h-4 text-amber-600" />
+                      <h3 className="font-bold text-base flex items-center gap-2 text-foreground">
+                        <Search className="w-4 h-4 text-primary" />
                         Buscar Desempenho e Gerar Ranking no SAEV
                       </h3>
                       <p className="text-xs text-muted-foreground">
@@ -934,20 +956,20 @@ export function CertificatesControl() {
                     </div>
 
                     {!saevUser && (
-                      <Button variant="outline" size="sm" onClick={() => setSaevLoginOpen(true)} className="gap-2 border-green-300 text-green-700 hover:bg-green-50">
+                      <Button variant="outline" size="sm" onClick={() => setSaevLoginOpen(true)} className="gap-2 text-xs">
                         Entrar no SAEV
                       </Button>
                     )}
                   </div>
 
-                  {/* Dedicated Scope Selector Buttons: Escola Toda vs Turma Atual */}
-                  <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 space-y-3">
+                  {/* Scope Selector: Escola Toda vs Turma Selecionada */}
+                  <div className="bg-muted/30 border border-border rounded-xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs font-bold text-emerald-950 flex items-center gap-2">
-                        <School className="w-4 h-4 text-emerald-700" />
+                      <Label className="text-xs font-bold text-foreground flex items-center gap-2">
+                        <School className="w-4 h-4 text-primary" />
                         Escopo da Busca do Ranking:
                       </Label>
-                      <Badge variant="outline" className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]">
+                      <Badge variant="outline" className="border-border text-muted-foreground text-[10px]">
                         {saevSearchScope === 'school' ? 'Modo: Escola Completa' : 'Modo: Turma Selecionada'}
                       </Badge>
                     </div>
@@ -957,15 +979,16 @@ export function CertificatesControl() {
                         type="button"
                         variant={saevSearchScope === 'school' ? 'default' : 'outline'}
                         onClick={() => setSaevSearchScope('school')}
-                        className={`h-auto py-3 px-4 flex items-start gap-3 text-left justify-start transition-all ${saevSearchScope === 'school'
-                          ? 'bg-green-700 hover:bg-green-800 text-white shadow-md ring-2 ring-green-600/30'
-                          : 'bg-white hover:bg-green-50 border-green-200 text-green-950'
-                          }`}
+                        className={`h-auto py-3 px-4 flex items-start gap-3 text-left justify-start transition-all ${
+                          saevSearchScope === 'school'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'bg-card hover:bg-muted/50 border-border text-foreground'
+                        }`}
                       >
-                        <School className={`w-5 h-5 shrink-0 mt-0.5 ${saevSearchScope === 'school' ? 'text-amber-300' : 'text-green-700'}`} />
+                        <School className="w-5 h-5 shrink-0 mt-0.5" />
                         <div>
-                          <div className="font-bold text-xs">🏫 Buscar Ranking na ESCOLA TODA</div>
-                          <div className={`text-[11px] leading-tight ${saevSearchScope === 'school' ? 'text-green-100' : 'text-muted-foreground'}`}>
+                          <div className="font-bold text-xs">Buscar Ranking na Escola Toda</div>
+                          <div className={`text-[11px] leading-tight ${saevSearchScope === 'school' ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
                             Varre todas as turmas da escola e classifica os melhores colocados gerais.
                           </div>
                         </div>
@@ -975,16 +998,17 @@ export function CertificatesControl() {
                         type="button"
                         variant={saevSearchScope === 'class' ? 'default' : 'outline'}
                         onClick={() => setSaevSearchScope('class')}
-                        className={`h-auto py-3 px-4 flex items-start gap-3 text-left justify-start transition-all ${saevSearchScope === 'class'
-                          ? 'bg-green-700 hover:bg-green-800 text-white shadow-md ring-2 ring-green-600/30'
-                          : 'bg-white hover:bg-green-50 border-green-200 text-green-950'
-                          }`}
+                        className={`h-auto py-3 px-4 flex items-start gap-3 text-left justify-start transition-all ${
+                          saevSearchScope === 'class'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'bg-card hover:bg-muted/50 border-border text-foreground'
+                        }`}
                       >
-                        <Users className={`w-5 h-5 shrink-0 mt-0.5 ${saevSearchScope === 'class' ? 'text-amber-300' : 'text-green-700'}`} />
+                        <Users className="w-5 h-5 shrink-0 mt-0.5" />
                         <div>
-                          <div className="font-bold text-xs">👥 Buscar Apenas na TURMA SELECIONADA</div>
-                          <div className={`text-[11px] leading-tight ${saevSearchScope === 'class' ? 'text-green-100' : 'text-muted-foreground'}`}>
-                            Restringe a busca e colocação aos alunos da turma escolhida.
+                          <div className="font-bold text-xs">Buscar Apenas na Turma Selecionada</div>
+                          <div className={`text-[11px] leading-tight ${saevSearchScope === 'class' ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                            Restringe a busca e colocação aos alunos da turma escolhida no formulário.
                           </div>
                         </div>
                       </Button>
@@ -995,19 +1019,20 @@ export function CertificatesControl() {
                     onSubmit={handleFetchSaevData}
                     isLoading={isFetchingSaev}
                     showReportOptions={false}
-                    submitButtonLabel={saevSearchScope === 'school' ? '🏆 Buscar Ranking da ESCOLA TODA' : '👥 Buscar Ranking da TURMA SELECIONADA'}
+                    submitButtonLabel={saevSearchScope === 'school' ? 'Buscar Ranking da Escola Toda' : 'Buscar Ranking da Turma Selecionada'}
+                    submitButtonClassName="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 min-w-50 shadow-sm font-semibold"
                   />
 
                   {/* Ranking Filter Controls */}
-                  {saevRawStudents.length > 0 && (
-                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 space-y-3">
+                  {currentStudentsSource.length > 0 && (
+                    <div className="bg-card border border-border rounded-xl p-4 space-y-3 shadow-xs">
                       <div className="flex items-center justify-between">
-                        <Label className="text-sm font-bold text-amber-900 flex items-center gap-1.5">
-                          <Trophy className="w-4 h-4 text-amber-600" />
+                        <Label className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                          <Trophy className="w-4 h-4 text-primary" />
                           Filtrar Alunos por Destaque / Ranking:
                         </Label>
-                        <Badge variant="secondary" className="bg-amber-100 text-amber-900">
-                          Total Carregado: {saevRawStudents.length} alunos
+                        <Badge variant="outline" className="border-border text-muted-foreground text-xs">
+                          Total Carregado: {currentStudentsSource.length} alunos
                         </Badge>
                       </div>
 
@@ -1019,7 +1044,8 @@ export function CertificatesControl() {
                             onClick={() => setRankingMode('all')}
                             className="text-xs gap-1.5"
                           >
-                            🏆 Todos os Alunos ({filterCounts.all})
+                            <Users className="w-3.5 h-3.5" />
+                            <span>Todos os Alunos ({filterCounts.all})</span>
                           </Button>
                           <Button
                             size="sm"
@@ -1027,7 +1053,8 @@ export function CertificatesControl() {
                             onClick={() => setRankingMode('top1')}
                             className="text-xs gap-1.5"
                           >
-                            🥇 Apenas 1º Lugar ({filterCounts.top1})
+                            <Trophy className="w-3.5 h-3.5" />
+                            <span>Apenas 1º Lugar ({filterCounts.top1})</span>
                           </Button>
                           <Button
                             size="sm"
@@ -1035,7 +1062,8 @@ export function CertificatesControl() {
                             onClick={() => setRankingMode('top3')}
                             className="text-xs gap-1.5"
                           >
-                            🥇🥈🥉 Top 3 (1º, 2º e 3º) ({filterCounts.top3})
+                            <Medal className="w-3.5 h-3.5" />
+                            <span>Top 3 Geral ({filterCounts.top3})</span>
                           </Button>
                           <Button
                             size="sm"
@@ -1043,43 +1071,83 @@ export function CertificatesControl() {
                             onClick={() => setRankingMode('top5')}
                             className="text-xs gap-1.5"
                           >
-                            ⭐ Top 5 (1º ao 5º) ({filterCounts.top5})
+                            <Star className="w-3.5 h-3.5" />
+                            <span>Top 5 Geral ({filterCounts.top5})</span>
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={rankingMode === 'top3_por_turma' ? 'default' : 'outline'}
+                            onClick={() => setRankingMode('top3_por_turma')}
+                            className="text-xs gap-1.5 font-semibold"
+                            title="Gera o Top 3 de cada turma ordenados da primeira até a última turma na sequência no PDF"
+                          >
+                            <GraduationCap className="w-3.5 h-3.5" />
+                            <span>Top 3 de Cada Turma ({filterCounts.top3_por_turma})</span>
                           </Button>
                         </div>
 
-                        {/* Etapa Filter Dropdown */}
-                        <div className="flex items-center gap-2">
-                          <Label className="text-xs font-semibold text-amber-900 flex items-center gap-1">
-                            <School className="w-3.5 h-3.5 text-amber-700" />
-                            Etapa:
-                          </Label>
-                          <select
-                            value={etapaFilter}
-                            onChange={(e) => setEtapaFilter(e.target.value as 'all' | 'fund1' | 'fund2')}
-                            className="h-8 text-xs font-medium border border-amber-300 rounded-md bg-white text-slate-900 px-2.5 shadow-xs focus:ring-2 focus:ring-amber-500/20"
-                          >
-                            <option value="all">🏫 Todas as Etapas</option>
-                            <option value="fund1">📗 Fundamental I (1º ao 5º)</option>
-                            <option value="fund2">📘 Fundamental II (6º ao 9º)</option>
-                          </select>
-                        </div>
+                        {/* Dropdown Filters: Turma, Etapa, Leitura */}
+                        <div className="flex flex-wrap items-center gap-3">
+                          {/* Turma Filter Dropdown */}
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-xs font-semibold text-foreground flex items-center gap-1 shrink-0">
+                              <GraduationCap className="w-3.5 h-3.5 text-primary" />
+                              Turma:
+                            </Label>
+                            <Select value={turmaFilter} onValueChange={setTurmaFilter}>
+                              <SelectTrigger className="h-8 text-xs font-medium min-w-36">
+                                <SelectValue placeholder="Todas as Turmas" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">Todas as Turmas ({availableTurmas.length > 0 ? `${availableTurmas.length} turmas` : 'Todas'})</SelectItem>
+                                {availableTurmas.map((t) => {
+                                  const countInTurma = etapaFilteredStudents.filter(s => (s.turma || '').trim() === t.trim()).length;
+                                  return (
+                                    <SelectItem key={t} value={t}>
+                                      {t} ({countInTurma} alunos)
+                                    </SelectItem>
+                                  );
+                                })}
+                              </SelectContent>
+                            </Select>
+                          </div>
 
-                        {/* Reading Level Filter Dropdown */}
-                        <div className="flex items-center gap-2">
-                          <Label className="text-xs font-semibold text-amber-900 flex items-center gap-1">
-                            <BookOpen className="w-3.5 h-3.5 text-amber-700" />
-                            Filtrar por Leitura:
-                          </Label>
-                          <select
-                            value={readingLevelFilter}
-                            onChange={(e) => setReadingLevelFilter(e.target.value)}
-                            className="h-8 text-xs font-medium border border-amber-300 rounded-md bg-white text-slate-900 px-2.5 shadow-xs focus:ring-2 focus:ring-amber-500/20"
-                          >
-                            <option value="all">📖 Todos os Níveis ({currentStudentsSource.length})</option>
-                            {availableReadingLevels.map((lvl) => (
-                              <option key={lvl} value={lvl}>📖 {lvl}</option>
-                            ))}
-                          </select>
+                          {/* Etapa Filter Dropdown */}
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-xs font-semibold text-foreground flex items-center gap-1 shrink-0">
+                              <School className="w-3.5 h-3.5 text-primary" />
+                              Etapa:
+                            </Label>
+                            <Select value={etapaFilter} onValueChange={(val: 'all' | 'fund1' | 'fund2') => setEtapaFilter(val)}>
+                              <SelectTrigger className="h-8 text-xs font-medium min-w-36">
+                                <SelectValue placeholder="Todas as Etapas" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">Todas as Etapas</SelectItem>
+                                <SelectItem value="fund1">Fundamental I (1º ao 5º)</SelectItem>
+                                <SelectItem value="fund2">Fundamental II (6º ao 9º)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Reading Level Filter Dropdown */}
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-xs font-semibold text-foreground flex items-center gap-1 shrink-0">
+                              <BookOpen className="w-3.5 h-3.5 text-primary" />
+                              Leitura:
+                            </Label>
+                            <Select value={readingLevelFilter} onValueChange={setReadingLevelFilter}>
+                              <SelectTrigger className="h-8 text-xs font-medium min-w-36">
+                                <SelectValue placeholder="Todos os Níveis" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">Todos os Níveis ({currentStudentsSource.length})</SelectItem>
+                                {availableReadingLevels.map((lvl) => (
+                                  <SelectItem key={lvl} value={lvl}>{lvl}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1089,28 +1157,28 @@ export function CertificatesControl() {
 
               {/* Local System Class Selector */}
               {sourceType === 'local' && (
-                <div className="space-y-3 pt-4 border-t">
-                  <Label className="text-sm font-semibold">Selecione a Turma Cadastrada:</Label>
-                  <select
-                    value={selectedClassId}
-                    onChange={(e) => setSelectedClassId(e.target.value)}
-                    className="w-full md:w-1/2 h-10 rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="">-- Selecionar Turma --</option>
-                    {localClasses.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.students?.length || 0} Alunos)
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-3 pt-4 border-t border-border">
+                  <Label className="text-sm font-semibold text-foreground">Selecione a Turma Cadastrada:</Label>
+                  <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                    <SelectTrigger className="w-full md:w-1/2 h-10 text-sm">
+                      <SelectValue placeholder="-- Selecionar Turma --" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {localClasses.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name} ({c.students?.length || 0} Alunos)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
 
               {/* Student Data Table Preview */}
-              <div className="space-y-3 pt-4 border-t">
+              <div className="space-y-3 pt-4 border-t border-border">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-bold flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <Label className="text-sm font-bold flex items-center gap-2 text-foreground">
+                    <CheckCircle2 className="w-4 h-4 text-primary" />
                     Lista de Alunos Selecionados ({activeStudentsForPdf.length} de {filteredStudents.length})
                   </Label>
 
@@ -1126,13 +1194,13 @@ export function CertificatesControl() {
                   </div>
                 </div>
 
-                <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto text-xs">
+                <div className="border border-border rounded-lg overflow-hidden max-h-72 overflow-y-auto text-xs bg-card">
                   <table className="w-full text-left border-collapse">
-                    <thead className="bg-muted sticky top-0 font-semibold border-b">
+                    <thead className="bg-muted/80 sticky top-0 font-semibold border-b border-border text-foreground">
                       <tr>
                         <th className="p-2.5 w-10 text-center">
                           <Checkbox
-                            checked={selectedStudentIds.size > 0 && selectedStudentIds.size === filteredStudents.length}
+                            checked={filteredStudents.length > 0 && selectedStudentIds.size === filteredStudents.length}
                             onCheckedChange={(val) => handleToggleAllStudents(!!val)}
                           />
                         </th>
@@ -1143,21 +1211,22 @@ export function CertificatesControl() {
                         <th className="p-2.5">
                           <div className="flex items-center gap-1.5">
                             <span>Nível Leitura</span>
-                            <select
-                              value={readingLevelFilter}
-                              onChange={(e) => setReadingLevelFilter(e.target.value)}
-                              className="h-6 text-[11px] font-normal border border-amber-300 rounded bg-white text-slate-800 px-1 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
-                            >
-                              <option value="all">Todos os Níveis</option>
-                              {availableReadingLevels.map((lvl) => (
-                                <option key={lvl} value={lvl}>{lvl}</option>
-                              ))}
-                            </select>
+                            <Select value={readingLevelFilter} onValueChange={setReadingLevelFilter}>
+                              <SelectTrigger className="h-6 text-[11px] font-normal min-w-32 py-0 px-2 border-border bg-background">
+                                <SelectValue placeholder="Todos os Níveis" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">Todos os Níveis</SelectItem>
+                                {availableReadingLevels.map((lvl) => (
+                                  <SelectItem key={lvl} value={lvl}>{lvl}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y">
+                    <tbody className="divide-y divide-border">
                       {filteredStudents.length > 0 ? (
                         filteredStudents.map((st) => (
                           <tr key={st.id} className="hover:bg-muted/50 transition-colors">
@@ -1167,12 +1236,12 @@ export function CertificatesControl() {
                                 onCheckedChange={() => handleToggleStudent(st.id)}
                               />
                             </td>
-                            <td className="p-2.5 font-bold text-amber-700">
+                            <td className="p-2.5 font-bold text-foreground">
                               {st.colocacao || '-'}
                             </td>
-                            <td className="p-2.5 font-semibold text-slate-800">{st.nome_aluno}</td>
-                            <td className="p-2.5 text-slate-600">{st.turma}</td>
-                            <td className="p-2.5 text-slate-700 font-medium">
+                            <td className="p-2.5 font-semibold text-foreground">{st.nome_aluno}</td>
+                            <td className="p-2.5 text-muted-foreground font-medium">{st.turma}</td>
+                            <td className="p-2.5 text-foreground/90 font-medium">
                               {st.nota_portugues !== '-' && st.nota_matematica !== '-'
                                 ? `Port: ${st.nota_portugues} | Mat: ${st.nota_matematica}`
                                 : st.nota_portugues !== '-'
@@ -1181,7 +1250,7 @@ export function CertificatesControl() {
                                     ? `Mat: ${st.nota_matematica}`
                                     : (st.rawScore ? `${st.rawScore}%` : '-')}
                             </td>
-                            <td className="p-2.5 text-slate-600">{st.nivel_leitura || '-'}</td>
+                            <td className="p-2.5 text-muted-foreground">{st.nivel_leitura || '-'}</td>
                           </tr>
                         ))
                       ) : (
@@ -1196,14 +1265,14 @@ export function CertificatesControl() {
                 </div>
               </div>
 
-              <div className="flex justify-between items-center pt-4 border-t">
+              <div className="flex justify-between items-center pt-4 border-t border-border">
                 <Button variant="outline" onClick={() => setActiveStep('canvas')}>
                   &larr; Voltar para Caixas de Texto
                 </Button>
                 <Button
                   onClick={() => setActiveStep('export')}
                   disabled={activeStudentsForPdf.length === 0}
-                  className="gap-2 bg-amber-600 hover:bg-amber-700"
+                  className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-sm"
                 >
                   Avançar para Gerar PDF ({activeStudentsForPdf.length}) &rarr;
                 </Button>
@@ -1214,7 +1283,7 @@ export function CertificatesControl() {
 
         {/* STEP 4: BATCH PDF EXPORT */}
         <TabsContent value="export" className="mt-6 space-y-6">
-          <Card>
+          <Card className="border-border">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <FileDown className="w-5 h-5 text-primary" />
@@ -1227,31 +1296,42 @@ export function CertificatesControl() {
             <CardContent className="space-y-6">
               {/* Summary Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
-                  <div className="text-xs text-amber-800 font-medium">Quantidade de Certificados</div>
-                  <div className="text-3xl font-extrabold text-amber-900 mt-1">{activeStudentsForPdf.length}</div>
-                  <div className="text-[11px] text-amber-700 mt-1">Páginas no PDF Final</div>
+                <div className="bg-card border border-border rounded-xl p-4 text-center shadow-xs">
+                  <div className="text-xs text-muted-foreground font-medium flex items-center justify-center gap-1.5">
+                    <Award className="w-3.5 h-3.5 text-primary" />
+                    Quantidade de Certificados
+                  </div>
+                  <div className="text-3xl font-extrabold text-foreground mt-1">{activeStudentsForPdf.length}</div>
+                  <div className="text-[11px] text-muted-foreground mt-1">Páginas no PDF Final</div>
                 </div>
 
-                <div className="bg-slate-50 border rounded-xl p-4 text-center">
-                  <div className="text-xs text-slate-600 font-medium">Modelo Selecionado</div>
-                  <div className="text-lg font-bold text-slate-800 mt-1 truncate">{template.name}</div>
-                  <div className="text-[11px] text-slate-500 mt-1">Orientação {template.orientation === 'landscape' ? 'Paisagem' : 'Retrato'}</div>
+                <div className="bg-card border border-border rounded-xl p-4 text-center shadow-xs">
+                  <div className="text-xs text-muted-foreground font-medium flex items-center justify-center gap-1.5">
+                    <LayoutTemplate className="w-3.5 h-3.5 text-primary" />
+                    Modelo Selecionado
+                  </div>
+                  <div className="text-lg font-bold text-foreground mt-1 truncate">{template.name}</div>
+                  <div className="text-[11px] text-muted-foreground mt-1">Orientação {template.orientation === 'landscape' ? 'Paisagem' : 'Retrato'}</div>
                 </div>
 
-                <div className="bg-slate-50 border rounded-xl p-4 text-center">
-                  <div className="text-xs text-slate-600 font-medium">Fonte dos Dados</div>
-                  <div className="text-lg font-bold text-slate-800 mt-1 uppercase">{sourceType}</div>
-                  <div className="text-[11px] text-slate-500 mt-1">Modo Ranking: {rankingMode}</div>
+                <div className="bg-card border border-border rounded-xl p-4 text-center shadow-xs">
+                  <div className="text-xs text-muted-foreground font-medium flex items-center justify-center gap-1.5">
+                    <Trophy className="w-3.5 h-3.5 text-primary" />
+                    Fonte dos Dados
+                  </div>
+                  <div className="text-lg font-bold text-foreground mt-1 uppercase">{sourceType}</div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    Modo: {rankingMode === 'top3_por_turma' ? 'Top 3 de Cada Turma' : rankingMode}
+                  </div>
                 </div>
               </div>
 
               {/* Progress Bar during generation */}
               {isGeneratingPdf && (
-                <div className="space-y-2 bg-amber-50 border border-amber-200 p-4 rounded-xl">
-                  <div className="flex justify-between text-xs font-semibold text-amber-900">
+                <div className="space-y-2 bg-muted/40 border border-border p-4 rounded-xl">
+                  <div className="flex justify-between text-xs font-semibold text-foreground">
                     <span className="flex items-center gap-1.5">
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />
                       Gerando Certificados em Lote...
                     </span>
                     <span>{pdfProgress}%</span>
@@ -1261,13 +1341,13 @@ export function CertificatesControl() {
               )}
 
               {/* Action Button */}
-              <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-xl bg-card space-y-4">
-                <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600">
+              <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-border rounded-xl bg-card space-y-4">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary">
                   <Award className="w-8 h-8" />
                 </div>
 
                 <div className="text-center max-w-md">
-                  <h3 className="font-bold text-base">Pronto para Gerar os Certificados?</h3>
+                  <h3 className="font-bold text-base text-foreground">Pronto para Gerar os Certificados?</h3>
                   <p className="text-xs text-muted-foreground mt-1">
                     Será gerado um único arquivo PDF contendo {activeStudentsForPdf.length} certificados formatados e prontos para impressão.
                   </p>
@@ -1277,21 +1357,21 @@ export function CertificatesControl() {
                   size="lg"
                   onClick={handleGeneratePdf}
                   disabled={isGeneratingPdf || activeStudentsForPdf.length === 0}
-                  className="gap-2 bg-amber-600 hover:bg-amber-700 px-8 text-base shadow-lg"
+                  className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-8 text-base shadow-sm"
                 >
                   <FileDown className="w-5 h-5" />
                   {isGeneratingPdf ? 'Gerando PDF...' : `Gerar ${activeStudentsForPdf.length} Certificados em PDF`}
                 </Button>
 
                 {generatedPdfPath && (
-                  <div className="pt-2 flex items-center gap-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-lg">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <div className="pt-2 flex items-center gap-3 text-xs text-foreground bg-primary/10 border border-primary/20 px-4 py-2 rounded-lg">
+                    <CheckCircle2 className="w-4 h-4 text-primary" />
                     <span>Salvo em: <strong>{generatedPdfPath}</strong></span>
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => openPath(generatedPdfPath)}
-                      className="h-7 text-xs gap-1 text-emerald-800 hover:bg-emerald-100"
+                      className="h-7 text-xs gap-1 hover:bg-primary/10"
                     >
                       <FolderOpen className="w-3.5 h-3.5" />
                       Abrir Pasta

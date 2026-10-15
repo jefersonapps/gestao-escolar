@@ -40,4 +40,4 @@ export interface CertificateStudentData {
   [key: string]: any;
 }
 
-export type SaevRankingMode = 'all' | 'top1' | 'top3' | 'top5' | 'fluente_only' | 'custom_rank';
+export type SaevRankingMode = 'all' | 'top1' | 'top3' | 'top5' | 'top3_por_turma' | 'fluente_only' | 'custom_rank';
