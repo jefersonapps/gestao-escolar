@@ -677,6 +677,53 @@ export class SaevService implements IExternalAuthService {
       }
   }
 
+  /**
+   * Fetches descriptor performance data for the given filters from SAEV
+   */
+  async fetchDescriptors(filters: any): Promise<any | null> {
+      try {
+          if (!this.accessToken) return null;
+
+          const params = new URLSearchParams({
+              page: '1',
+              limit: '999999',
+              serie: filters.serie || '',
+              year: filters.ano || '',
+              edition: filters.edicao || '',
+              isEpvPartner: '0',
+              typeSchool: filters.rede || '',
+              stateId: filters.estado || '',
+              stateRegionalId: filters.regionalEstadual || '',
+              county: filters.municipio || '',
+              municipalityOrUniqueRegionalId: filters.regionalMunicipal || '',
+              school: filters.escola || '',
+              schoolClass: filters.turma || ''
+          });
+
+          const candidates = [
+              `${this.apiBaseUrl}/reports/descriptors?${params.toString()}`,
+              `${this.apiBaseUrl}/reports/skills?${params.toString()}`,
+              `${this.apiBaseUrl}/reports/descritores?${params.toString()}`
+          ];
+
+          for (const url of candidates) {
+              try {
+                  console.log(`[SaevService] Trying to fetch descriptors: ${url}`);
+                  const res = await this.fetchWithRetry(url, { headers: this.getAuthHeaders() });
+                  if (res && res.ok) {
+                      const json = await res.json();
+                      if (json) return json;
+                  }
+              } catch {
+                  // try next candidate
+              }
+          }
+      } catch (e) {
+          console.warn('[SaevService] Error fetching descriptors:', e);
+      }
+      return null;
+  }
+
 
     /**
      * Fetches available options for a specific filter level based on current selections

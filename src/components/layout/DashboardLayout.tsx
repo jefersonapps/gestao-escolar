@@ -11,10 +11,10 @@ import {
     Menu,
     Search,
     TableProperties,
-    BarChart3,
     AlertTriangle,
     Award,
-    CalendarDays
+    CalendarDays,
+    Presentation
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -55,7 +55,7 @@ const sidebarItems = [
   { id: 'infrequency', label: 'Infrequência', icon: UserMinus },
   { id: 'inconsistencies', label: 'Inconsistências', icon: AlertTriangle },
   { id: 'tables', label: 'Tabelas', icon: TableProperties },
-  { id: 'charts', label: 'Gráficos', icon: BarChart3 },
+  { id: 'charts', label: 'Compilar Resultados', icon: Presentation },
   { id: 'reports', label: 'Relatórios', icon: clipboardListIcon },
   { id: 'certificates', label: 'Certificados', icon: Award },
   { id: 'agenda', label: 'Agenda SGEDU', icon: CalendarDays },
@@ -230,7 +230,13 @@ export function DashboardLayout({ children, activeTab, onTabChange }: DashboardL
         </header>
 
         {/* Page Content */}
-        {["charts", "tables"].includes(activeTab) ? (
+        {activeTab === 'charts' ? (
+            <main className="flex-1 min-h-0 p-3 md:p-4 flex flex-col overflow-hidden w-full">
+                <div className="flex-1 flex flex-col w-full min-h-0 overflow-hidden">
+                    {children}
+                </div>
+            </main>
+        ) : activeTab === 'tables' ? (
             <main className="flex-1 min-h-0 p-6 md:p-8 flex flex-col overflow-hidden">
                 <div className="max-w-7xl mx-auto flex-1 flex flex-col w-full min-h-0 overflow-hidden">
                     {children}
